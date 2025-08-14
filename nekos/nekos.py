@@ -9,20 +9,14 @@ class Nekos(commands.Cog):
         self.bot = bot
 
     async def _fetch_neko(self):
-        """Helper function to fetch neko image URL"""
-        url = "https://api.nekosapi.com/v4/images/random"
+        """Fetch a random neko image URL (plain text)"""
+        url = "https://api.nekosapi.com/v4/images/random/file"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
                     return None
-                data = await resp.json()
-
-        try:
-            # Correct for API returning a list
-            return data[0]["attributes"]["file"]
-        except (KeyError, IndexError, TypeError):
-            return None
+                return await resp.text()  # Returns the URL as a string
 
     @commands.command(name="neko", aliases=["nekos"])
     async def neko_command(self, ctx):
