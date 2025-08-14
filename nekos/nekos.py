@@ -1,42 +1,22 @@
-import aiohttp
-import discord
+import requests
 from redbot.core import commands
 
-class Nekos(commands.Cog):
-    """Get random neko images from Nekos API"""
+class Neko(commands.Cog):
+    """Fetches a random neko image."""
 
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()  # reuse session for efficiency
 
-    async def cog_unload(self):
-        await self.session.close()  # close session when cog unloads
-
-    async def _fetch_neko(self):
-        """Fetch a random neko image URL from JSON"""
-        url = "https://api.nekosapi.com/v4/images/random"
-
-        async with self.session.get(url) as resp:
-            if resp.status != 200:
-                return None
-            try:
-                data = await resp.json()
-                return data[0]["attributes"]["file"]  # first item URL
-            except (KeyError, IndexError, TypeError):
-                return None
-
-    @commands.command(name="neko", aliases=["nekos"])
-    async def neko_command(self, ctx):
-        """Get a random neko image"""
-        image_url = await self._fetch_neko()
-        if not image_url:
-            await ctx.send("❌ Error fetching image.")
-            return
-
-        embed = discord.Embed(title="Here’s a random neko 🐱")
-        embed.set_image(url=image_url)
-        await ctx.send(embed=embed)
-
-
-async def setup(bot):
-    await bot.add_cog(Nekos(bot))
+    @commands.command()
+    async def neko(self, ctx):
+        """Sends a random neko image."""
+        try:
+            response = requests.get("https://api.nekosapi.com/v4/images/random/file")
+            response.raise_for_status()
+            image_url = response.json().get("url")
+            if image_url:
+                await ctx.send(image_url)
+            else:
+                await ctx.send("No image found.")
+        except requests.RequestException as e:
+            await ctx.send(f"An error occurred: {e}")

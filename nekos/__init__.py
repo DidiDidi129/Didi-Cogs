@@ -1,4 +1,4 @@
-from .nekos import Nekos
+from .neko import Neko
 
 async def setup(bot):
-    await bot.add_cog(Nekos(bot))
+    await bot.add_cog(Neko(bot))
