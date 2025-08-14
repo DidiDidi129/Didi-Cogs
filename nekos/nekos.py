@@ -19,9 +19,9 @@ class Nekos(commands.Cog):
                 data = await resp.json()
 
         try:
-            # Assuming the first item in the list is the desired image
+            # Correct for API returning a list
             return data[0]["attributes"]["file"]
-        except (KeyError, IndexError):
+        except (KeyError, IndexError, TypeError):
             return None
 
     @commands.command(name="neko", aliases=["nekos"])
