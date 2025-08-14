@@ -10,18 +10,21 @@ class Neko(commands.Cog):
     @commands.command()
     async def neko(self, ctx):
         """Sends a random neko image."""
-        url = "https://api.nekosapi.com/v4/images/random/file"
+        api_url = "https://api.nekosapi.com/v4/images/random/file"
+
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        await ctx.send(f"Error: received status {response.status}")
-                        return
-                    data = await response.json()
-                    image_url = data.get("url")
-                    if image_url:
-                        await ctx.send(image_url)
+                async with session.get(api_url) as response:
+                    # If the response is JSON
+                    if "application/json" in response.headers.get("Content-Type", ""):
+                        data = await response.json()
+                        image_url = data.get("url")
+                        if image_url:
+                            await ctx.send(image_url)
+                        else:
+                            await ctx.send("No image found.")
                     else:
-                        await ctx.send("No image found.")
+                        # If the API returned an image directly
+                        await ctx.send(str(response.url))
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
