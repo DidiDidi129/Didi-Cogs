@@ -10,7 +10,7 @@ class Nekos(commands.Cog):
 
     async def _fetch_neko(self):
         """Helper function to fetch neko image URL"""
-        url = "https://api.nekosapi.com/v3/images/random"
+        url = "https://api.nekosapi.com/v4/images/random"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
