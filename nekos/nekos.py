@@ -8,22 +8,27 @@ class Nekos(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command()
-    async def neko(self, ctx):
-        """Get a random neko image"""
+    async def _fetch_neko(self):
+        """Helper function to fetch neko image URL"""
         url = "https://api.nekosapi.com/v3/images/random"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    await ctx.send(f"❌ Error fetching image: {resp.status}")
-                    return
+                    return None
                 data = await resp.json()
 
         try:
-            image_url = data["data"][0]["attributes"]["file"]
+            return data["data"][0]["attributes"]["file"]
         except (KeyError, IndexError):
-            await ctx.send("❌ Could not parse image data.")
+            return None
+
+    @commands.command(name="neko", aliases=["nekos"])
+    async def neko_command(self, ctx):
+        """Get a random neko image"""
+        image_url = await self._fetch_neko()
+        if not image_url:
+            await ctx.send("❌ Error fetching image.")
             return
 
         embed = discord.Embed(title="Here’s a random neko 🐱")
