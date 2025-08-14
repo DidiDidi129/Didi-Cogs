@@ -25,7 +25,7 @@ class Neko(commands.Cog):
         
         Each rating has an equal 1/4 chance.
         """
-        ratings = ["safe", "borderline", "explicit", "questionable"]
+        ratings = ["safe", "borderline", "explicit", "suggestive"]
         rating = random.choice(ratings)
         await ctx.send(f"🎲 Rolled rating: **{rating}**")
         await self.fetch_and_send(ctx, rating)
