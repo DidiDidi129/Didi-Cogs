@@ -19,7 +19,8 @@ class Nekos(commands.Cog):
                 data = await resp.json()
 
         try:
-            return data["data"][0]["attributes"]["file"]
+            # Assuming the first item in the list is the desired image
+            return data[0]["attributes"]["file"]
         except (KeyError, IndexError):
             return None
 
