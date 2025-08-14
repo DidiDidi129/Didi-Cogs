@@ -1,0 +1,10 @@
+{
+    "author": ["Didi"],
+    "install_msg": "Thanks for installing Nekos Cog! Use `[p]neko` to get a random neko image.",
+    "name": "Nekos",
+    "short": "Random neko images from Nekos API",
+    "description": "Fetches random neko images from the Nekos API and posts them in chat.",
+    "tags": ["fun", "images", "nekos"],
+    "requirements": ["aiohttp"],
+    "type": "COG"
+}
