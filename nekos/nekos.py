@@ -7,16 +7,23 @@ class Nekos(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.session = aiohttp.ClientSession()  # reuse session for efficiency
+
+    async def cog_unload(self):
+        await self.session.close()  # close session when cog unloads
 
     async def _fetch_neko(self):
-        """Fetch a random neko image URL (plain text)"""
-        url = "https://api.nekosapi.com/v4/images/random/file"
+        """Fetch a random neko image URL from JSON"""
+        url = "https://api.nekosapi.com/v4/images/random"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return None
-                return await resp.text()  # Returns the URL as a string
+        async with self.session.get(url) as resp:
+            if resp.status != 200:
+                return None
+            try:
+                data = await resp.json()
+                return data[0]["attributes"]["file"]  # first item URL
+            except (KeyError, IndexError, TypeError):
+                return None
 
     @commands.command(name="neko", aliases=["nekos"])
     async def neko_command(self, ctx):
