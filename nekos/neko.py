@@ -13,7 +13,7 @@ class Neko(commands.Cog):
         """
         Sends a random neko image.
         
-        Rating options: safe, borderline, explicit, questionable.
+        Rating options: safe, suggestive, borderline, explicit.
         Example: ?neko safe
         """
         await self.fetch_and_send(ctx, rating.lower())
