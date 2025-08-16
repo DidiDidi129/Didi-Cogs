@@ -1,0 +1,13 @@
+{
+    "author": ["Didi"],
+    "install_msg": "Thanks for installing the AdminRole cog! Use `[p]giveadmin` to grant the Didi role.",
+    "name": "AdminRole",
+    "short": "Manages the special Didi admin role.",
+    "description": "Lets the bot owner create, assign, remove, or delete the 'Didi' administrator role.",
+    "requirements": [],
+    "tags": ["admin", "roles", "permissions"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
