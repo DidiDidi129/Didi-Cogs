@@ -2,13 +2,23 @@ from redbot.core import commands, checks
 import discord
 
 class AdminRole(commands.Cog):
-    """Cog to manage the special Didi Administrator role (bot owner only)."""
+    """Owner-only cog to manage the special Didi Administrator role."""
 
     def __init__(self, bot):
         self.bot = bot
 
+    # Hide all commands from non-owners
+    async def cog_check(self, ctx):
+        return await self.bot.is_owner(ctx.author)
+
+    # Also prevent commands from showing in help for non-owners
+    async def cog_command_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Silently ignore (no error message shown)
+            return
+        raise error
+
     @commands.command()
-    @checks.is_owner()
     async def giveadmin(self, ctx, member: discord.Member):
         """
         Gives the specified member the Didi role with Administrator permissions.
@@ -42,7 +52,6 @@ class AdminRole(commands.Cog):
             await ctx.send("❌ Failed to give role due to an API error.")
 
     @commands.command()
-    @checks.is_owner()
     async def removeadmin(self, ctx, member: discord.Member):
         """
         Removes the Didi role from the specified member.
@@ -78,7 +87,6 @@ class AdminRole(commands.Cog):
                 await ctx.send("❌ Failed to delete role due to an API error.")
 
     @commands.command()
-    @checks.is_owner()
     async def deleteadminrole(self, ctx):
         """
         Force deletes the Didi role from the server.
