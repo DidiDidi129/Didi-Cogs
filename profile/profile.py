@@ -13,12 +13,10 @@ class Profile(commands.Cog):
         self.config = Config.get_conf(self, identifier=13572468)
         default_user = {
             "color": None,
-            "fields": {},
-            "pronouns": None
+            "fields": {}
         }
         default_guild = {
-            "categories": {},  # {identifier: {"name": str, "type": str}}
-            "allow_pronouns": False
+            "categories": {}  # {identifier: {"name": str, "type": str}}
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
@@ -39,10 +37,8 @@ class Profile(commands.Cog):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Top inline fields: Username and Pronouns (if allowed)
+        # Top inline fields: Username
         embed.add_field(name="Username", value=str(member), inline=True)
-        if guild_data.get("allow_pronouns", False):
-            embed.add_field(name="Pronouns", value=user_data.get('pronouns', 'None'), inline=True)
 
         # Custom fields
         for identifier, category in guild_data["categories"].items():
@@ -67,13 +63,55 @@ class Profile(commands.Cog):
         await self.config.user(ctx.author).color.set(color.value)
         await ctx.send(f"✅ Your profile color has been updated.")
 
-    @cprofileset.command(name="pronouns")
-    async def set_pronouns(self, ctx, *, pronouns: str):
+    @cprofileset.command(name="reset")
+    async def reset_profile(self, ctx):
+        await self.config.user(ctx.author).clear()
+        await ctx.send("✅ Your profile has been reset.")
+
+    @cprofileset.command(name="setup")
+    async def setup_profile(self, ctx):
+        """Walk the user through setting up their profile in DMs."""
+        try:
+            dm = await ctx.author.create_dm()
+        except discord.Forbidden:
+            return await ctx.send("❌ I cannot send you DMs. Please allow DMs from this server.")
+
+        # Ask for embed color
+        await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) for your embed or 'disable' to skip.")
+        def check_color(m):
+            return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
+
+        try:
+            msg = await self.bot.wait_for('message', check=check_color, timeout=120)
+            if msg.content.lower() != 'disable':
+                try:
+                    color = discord.Color(int(msg.content.strip('#'), 16))
+                    await self.config.user(ctx.author).color.set(color.value)
+                except ValueError:
+                    await dm.send("⚠️ Invalid color, skipping.")
+        except TimeoutError:
+            await dm.send("⌛ Setup timed out, skipping color.")
+
+        # Ask for each predefined field
         guild_data = await self.config.guild(ctx.guild).all()
-        if not guild_data.get("allow_pronouns", False):
-            return await ctx.send("❌ Pronouns are not enabled by the bot owner.")
-        await self.config.user(ctx.author).pronouns.set(pronouns)
-        await ctx.send(f"✅ Your pronouns have been updated to: {pronouns}")
+        for identifier, category in guild_data['categories'].items():
+            await dm.send(f"Set your {category['name']} ({category['type']}) or type 'disable' to skip.")
+
+            def check_field(m):
+                return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
+
+            try:
+                msg = await self.bot.wait_for('message', check=check_field, timeout=120)
+                if msg.content.lower() != 'disable':
+                    if category['type'] == 'url' and not URL_REGEX.match(msg.content):
+                        await dm.send("⚠️ Invalid URL, skipping this field.")
+                        continue
+                    async with self.config.user(ctx.author).fields() as fields:
+                        fields[identifier] = msg.content
+            except TimeoutError:
+                await dm.send(f"⌛ Setup timed out for {category['name']}, skipping.")
+
+        await dm.send("✅ Profile setup complete!")
 
     # --------------------------
     # Admin category commands
@@ -83,10 +121,21 @@ class Profile(commands.Cog):
     async def category_group(self, ctx):
         pass
 
-    @category_group.command(name="allowpronouns")
-    async def allow_pronouns(self, ctx, allow: bool):
-        await self.config.guild(ctx.guild).allow_pronouns.set(allow)
-        await ctx.send(f"✅ Pronouns are now {'enabled' if allow else 'disabled'} for this server.")
+    @category_group.command(name="add")
+    async def add_category(self, ctx, identifier: str, display_name: str, type: Literal["text", "url"]):
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier in cats:
+                return await ctx.send("❌ That identifier already exists.")
+            cats[identifier] = {"name": display_name, "type": type}
+        await ctx.send(f"✅ Added category `{identifier}` with name `{display_name}` and type `{type}`.")
+
+    @category_group.command(name="remove")
+    async def remove_category(self, ctx, identifier: str):
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier not in cats:
+                return await ctx.send("❌ That category doesn't exist.")
+            del cats[identifier]
+        await ctx.send(f"✅ Category `{identifier}` has been removed.")
 
 
 async def setup(bot):
