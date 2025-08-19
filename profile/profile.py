@@ -16,7 +16,8 @@ class Profile(commands.Cog):
         }
         default_guild = {
             "categories": {},  # {identifier: {"name": str, "type": str}}
-            "allow_user_edit": True  # global toggle for user edits
+            "allow_user_edit": True,  # global toggle for user edits
+            "role_bypass": []  # list of role IDs that can bypass toggle
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
@@ -56,19 +57,29 @@ class Profile(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send("❌ Available subcommands: `setup`, `adminsetup`")
 
+    async def user_can_edit(self, ctx, member):
+        """Check if the member can bypass global toggle via role or is editing someone else."""
+        guild_data = await self.config.guild(ctx.guild).all()
+        if member != ctx.author:
+            return True
+        if guild_data.get("allow_user_edit", True):
+            return True
+        # Check role bypass
+        bypass_roles = guild_data.get("role_bypass", [])
+        return any(r.id in bypass_roles for r in ctx.author.roles)
+
     @cprofileset.command(name="setup")
     async def setup_profile(self, ctx, member: discord.Member = None):
         member = member or ctx.author
-        guild_data = await self.config.guild(ctx.guild).all()
-        if member == ctx.author and not guild_data.get("allow_user_edit", True):
-            return await ctx.send("❌ Users are not allowed to edit profiles.")
+        if not await self.user_can_edit(ctx, member):
+            return await ctx.send("❌ You are not allowed to edit your profile.")
 
         try:
             dm = await member.create_dm()
         except discord.Forbidden:
             return await ctx.send("❌ I cannot send DMs to the user.")
 
-        await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) for your embed or 'disable' to skip.")
+        await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) or 'disable' to skip.")
         def check_color(m):
             return m.author == member and isinstance(m.channel, discord.DMChannel)
 
@@ -79,35 +90,35 @@ class Profile(commands.Cog):
                     color = discord.Color(int(msg.content.strip('#'), 16))
                     await self.config.user(member).color.set(color.value)
                 except ValueError:
-                    await dm.send("⚠️ Invalid color, skipping.")
+                    await dm.send("⚠️ Invalid color. Skipping.")
         except TimeoutError:
-            await dm.send("⌛ Setup timed out, skipping color.")
+            await dm.send("⌛ Color setup timed out. Skipping.")
 
         guild_data = await self.config.guild(ctx.guild).all()
         for identifier, category in guild_data['categories'].items():
-            await dm.send(f"Set your {category['name']} ({category['type']}) or type 'disable' to skip.")
+            await dm.send(f"Set your {category['name']} ({category['type']}) or 'disable' to skip.")
             def check_field(m):
                 return m.author == member and isinstance(m.channel, discord.DMChannel)
             try:
                 msg = await self.bot.wait_for('message', check=check_field, timeout=120)
                 if msg.content.lower() != 'disable':
                     if category['type'] == 'url' and not URL_REGEX.match(msg.content):
-                        await dm.send("⚠️ Invalid URL, skipping this field.")
+                        await dm.send("⚠️ Invalid URL. Skipping this field.")
                         continue
                     async with self.config.user(member).fields() as fields:
                         fields[identifier] = msg.content
             except TimeoutError:
-                await dm.send(f"⌛ Setup timed out for {category['name']}, skipping.")
+                await dm.send(f"⌛ Setup timed out for {category['name']}. Skipping.")
 
         await dm.send("✅ Profile setup complete!")
 
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Walk an admin through categories, user profile edits, and global settings in the same channel."""
+        """Admin setup: categories, user profile edits (including color), and global settings."""
         channel = ctx.channel
         await channel.send(
-            "Starting admin setup. You can add categories, toggle user edits, and edit user profiles."
+            "Starting admin setup. You can add categories, toggle user edits, or edit user profiles including colors."
         )
 
         def check(m):
@@ -115,8 +126,11 @@ class Profile(commands.Cog):
 
         while True:
             await channel.send(
-                "Type `addcategory` to add a new category, `toggleedit` to allow/deny user edits, "
-                "`edituser` to edit a user's profile, or `done` to finish."
+                "Options:\n"
+                "`addcategory <id> <name> <type:text|url>`\n"
+                "`toggleedit <True|False>`\n"
+                "`edituser <@user> <field_or_color> <value>`\n"
+                "`done` to finish setup."
             )
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=300)
@@ -124,18 +138,19 @@ class Profile(commands.Cog):
                 await channel.send("⌛ Admin setup timed out.")
                 break
 
-            content = msg.content.lower()
+            parts = msg.content.split(maxsplit=3)
+            if not parts:
+                continue
+            command = parts[0].lower()
 
-            # Finish
-            if content == "done":
+            if command == "done":
                 await channel.send("✅ Admin setup complete.")
                 break
 
             # Add category
-            elif content.startswith("addcategory"):
-                parts = msg.content.split()
+            elif command == "addcategory":
                 if len(parts) != 4:
-                    await channel.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
+                    await channel.send("❌ Usage: addcategory <id> <display_name> <type:text|url>")
                     continue
                 _, identifier, display_name, type_ = parts
                 async with self.config.guild(ctx.guild).categories() as cats:
@@ -145,9 +160,8 @@ class Profile(commands.Cog):
                         cats[identifier] = {"name": display_name, "type": type_}
                         await channel.send(f"✅ Added category `{identifier}`.")
 
-            # Toggle global user edits
-            elif content.startswith("toggleedit"):
-                parts = msg.content.split()
+            # Toggle user edit
+            elif command == "toggleedit":
                 if len(parts) != 2:
                     await channel.send("❌ Usage: toggleedit <True|False>")
                     continue
@@ -157,14 +171,12 @@ class Profile(commands.Cog):
                     f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally."
                 )
 
-            # Edit a user's profile
-            elif content.startswith("edituser"):
-                parts = msg.content.split(maxsplit=3)
+            # Edit user
+            elif command == "edituser":
                 if len(parts) != 4:
-                    await channel.send("❌ Usage: edituser <@user> <category_identifier> <value>")
+                    await channel.send("❌ Usage: edituser <@user> <field_or_color> <value>")
                     continue
-
-                _, user_mention, identifier, value = parts
+                _, user_mention, field, value = parts
 
                 member = None
                 if user_mention.startswith("<@") and user_mention.endswith(">"):
@@ -174,19 +186,25 @@ class Profile(commands.Cog):
                     await channel.send("❌ Could not find that user in this server.")
                     continue
 
-                guild_data = await self.config.guild(ctx.guild).all()
-                if identifier not in guild_data["categories"]:
-                    await channel.send("❌ That category does not exist.")
-                    continue
-
-                category = guild_data["categories"][identifier]
-                if category["type"] == "url" and not URL_REGEX.match(value):
-                    await channel.send("❌ That value must be a valid URL.")
-                    continue
-
-                async with self.config.user(member).fields() as fields:
-                    fields[identifier] = value
-                await channel.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+                if field.lower() == "color":
+                    try:
+                        color = discord.Color(int(value.strip("#"), 16))
+                        await self.config.user(member).color.set(color.value)
+                        await channel.send(f"✅ {member.display_name}'s color has been updated.")
+                    except ValueError:
+                        await channel.send("❌ Invalid color hex value.")
+                else:
+                    guild_data = await self.config.guild(ctx.guild).all()
+                    if field not in guild_data["categories"]:
+                        await channel.send("❌ That category does not exist.")
+                        continue
+                    category = guild_data["categories"][field]
+                    if category["type"] == "url" and not URL_REGEX.match(value):
+                        await channel.send("❌ That value must be a valid URL.")
+                        continue
+                    async with self.config.user(member).fields() as fields:
+                        fields[field] = value
+                    await channel.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
 
 async def setup(bot):
     await bot.add_cog(Profile(bot))
