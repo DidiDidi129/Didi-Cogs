@@ -43,12 +43,6 @@ class Profile(commands.Cog):
         embed.add_field(name="Username", value=str(member), inline=True)
         embed.add_field(name="Pronouns", value=user_data.get('pronouns', 'None'), inline=True)
 
-        # Always show Discord bio (sync with user's current Discord bio)
-        if member.bio:
-            embed.add_field(name="Bio", value=member.bio, inline=False)
-        else:
-            embed.add_field(name="Bio", value="None", inline=False)
-
         # Custom fields
         for identifier, category in guild_data["categories"].items():
             if identifier in user_data["fields"]:
@@ -70,25 +64,21 @@ class Profile(commands.Cog):
 
     @cprofileset.command(name="color")
     async def set_color(self, ctx, color: discord.Color):
-        """Set your profile embed color."""
         await self.config.user(ctx.author).color.set(color.value)
         await ctx.send(f"✅ Your profile color has been updated.")
 
     @cprofileset.command(name="pronouns")
     async def set_pronouns(self, ctx, *, pronouns: str):
-        """Set your pronouns to display next to your username."""
         await self.config.user(ctx.author).pronouns.set(pronouns)
         await ctx.send(f"✅ Your pronouns have been updated to: {pronouns}")
 
     @cprofileset.command(name="reset")
     async def reset_profile(self, ctx):
-        """Reset your profile."""
         await self.config.user(ctx.author).clear()
         await ctx.send("✅ Your profile has been reset.")
 
     @cprofileset.command()
     async def field(self, ctx, identifier: str, *, value: str):
-        """Set a value for a predefined category."""
         guild_data = await self.config.guild(ctx.guild).all()
         if identifier not in guild_data["categories"]:
             return await ctx.send("❌ That category doesn't exist.")
@@ -163,7 +153,6 @@ class Profile(commands.Cog):
     @cprofileset.group(name="category")
     @checks.is_owner()
     async def category_group(self, ctx):
-        """Manage profile categories."""
         pass
 
     @category_group.command(name="add")
