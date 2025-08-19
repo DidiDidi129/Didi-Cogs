@@ -27,7 +27,7 @@ class Profile(commands.Cog):
     # Profile view
     # --------------------------
     @commands.command()
-    async def cprofile(self, ctx, member: discord.Member = None):
+    async def profile(self, ctx, member: discord.Member = None):
         if ctx.guild is None:
             return await ctx.send("❌ This command can only be used in a server.")
         member = member or ctx.author
@@ -52,7 +52,7 @@ class Profile(commands.Cog):
     # Profile settings
     # --------------------------
     @commands.group()
-    async def cprofileset(self, ctx):
+    async def profileset(self, ctx):
         """Profile settings. Only 'setup' and 'adminsetup' remain."""
         if ctx.invoked_subcommand is None:
             await ctx.send("❌ Available subcommands: `setup`, `adminsetup`")
@@ -67,7 +67,7 @@ class Profile(commands.Cog):
         bypass_roles = guild_data.get("role_bypass", [])
         return any(r.id in bypass_roles for r in ctx.author.roles)
 
-    @cprofileset.command(name="setup")
+    @profileset.command(name="setup")
     async def setup_profile(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         if not await self.user_can_edit(ctx, member):
@@ -114,7 +114,7 @@ class Profile(commands.Cog):
     # --------------------------
     # Admin setup in-channel
     # --------------------------
-    @cprofileset.command(name="adminsetup")
+    @profileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
         """Admin setup: categories, user fields, toggle edits, view all categories and users."""
