@@ -1,1 +1,1 @@
-These are some cogs I made!
+These are some cogs I (ChatGPT) made!
