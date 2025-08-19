@@ -115,10 +115,10 @@ class Profile(commands.Cog):
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Admin setup: categories, user profile edits (including color), removing fields, and global settings."""
+        """Admin setup: categories, user profile edits, remove fields, global settings, view all categories and users with profiles."""
         channel = ctx.channel
         await channel.send(
-            "Starting admin setup. You can add/remove categories, toggle user edits, or edit user profiles including colors."
+            "Starting admin setup. Options: add/remove categories, edit/remove user fields, toggle user edits, view all categories and users."
         )
 
         def check(m):
@@ -126,12 +126,13 @@ class Profile(commands.Cog):
 
         while True:
             await channel.send(
-                "Options:\n"
+                "Commands:\n"
                 "`addcategory <id> <name> <type:text|url>`\n"
                 "`removecategory <id>`\n"
                 "`toggleedit <True|False>`\n"
                 "`edituser <@user> <field_or_color> <value>`\n"
                 "`removeuserfield <@user> <field>`\n"
+                "`view` (show all category IDs and current users with profiles)\n"
                 "`done` to finish setup."
             )
             try:
@@ -145,9 +146,24 @@ class Profile(commands.Cog):
                 continue
             command = parts[0].lower()
 
+            # Finish
             if command == "done":
                 await channel.send("✅ Admin setup complete.")
                 break
+
+            # View categories & users
+            elif command == "view":
+                guild_data = await self.config.guild(ctx.guild).all()
+                categories = guild_data["categories"]
+                category_list = "\n".join(f"`{cid}`: {cat['name']} ({cat['type']})" for cid, cat in categories.items()) or "None"
+                users_with_profiles = []
+                async for user_id, data in self.config.all_users():
+                    if data.get("fields") or data.get("color"):
+                        member = ctx.guild.get_member(user_id)
+                        if member:
+                            users_with_profiles.append(f"{member} (`{user_id}`)")
+                user_list = "\n".join(users_with_profiles) or "None"
+                await channel.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
 
             # Add category
             elif command == "addcategory":
@@ -173,7 +189,6 @@ class Profile(commands.Cog):
                         await channel.send("❌ That category does not exist.")
                         continue
                     del cats[identifier]
-                # Remove from all users
                 async for user_id, _ in self.config.all_users():
                     async with self.config.user_from_id(user_id).fields() as fields:
                         if identifier in fields:
@@ -197,7 +212,6 @@ class Profile(commands.Cog):
                     await channel.send("❌ Usage: edituser <@user> <field_or_color> <value>")
                     continue
                 _, user_mention, field, value = parts
-
                 member = None
                 if user_mention.startswith("<@") and user_mention.endswith(">"):
                     user_id = int(user_mention.strip("<@!>"))
@@ -205,7 +219,6 @@ class Profile(commands.Cog):
                 if member is None:
                     await channel.send("❌ Could not find that user in this server.")
                     continue
-
                 if field.lower() == "color":
                     try:
                         color = discord.Color(int(value.strip("#"), 16))
@@ -232,7 +245,6 @@ class Profile(commands.Cog):
                     await channel.send("❌ Usage: removeuserfield <@user> <field>")
                     continue
                 _, user_mention, field = parts
-
                 member = None
                 if user_mention.startswith("<@") and user_mention.endswith(">"):
                     user_id = int(user_mention.strip("<@!>"))
@@ -240,7 +252,6 @@ class Profile(commands.Cog):
                 if member is None:
                     await channel.send("❌ Could not find that user in this server.")
                     continue
-
                 async with self.config.user(member).fields() as fields:
                     if field in fields:
                         del fields[field]
