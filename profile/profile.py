@@ -23,9 +23,6 @@ class Profile(commands.Cog):
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
 
-    # --------------------------
-    # Profile view command
-    # --------------------------
     @commands.command()
     async def cprofile(self, ctx, member: discord.Member = None):
         member = member or ctx.author
@@ -46,9 +43,6 @@ class Profile(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    # --------------------------
-    # User settings
-    # --------------------------
     @commands.group()
     async def cprofileset(self, ctx):
         pass
@@ -102,18 +96,18 @@ class Profile(commands.Cog):
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Walk an admin through categories, global settings, roles, and removing profiles via DMs."""
+        """Admin DM menu to manage categories, roles, global edit permission, remove profiles, and edit any user's profile."""
         try:
             dm = await ctx.author.create_dm()
         except discord.Forbidden:
             return await ctx.send("❌ Cannot send DMs to the bot owner.")
 
-        await dm.send("Starting admin setup. You can add/remove categories, toggle user edits, manage roles, and remove user profiles.")
+        await dm.send("Starting admin setup. You can manage categories, toggle user edits, roles, remove profiles, or edit any user's profile.")
         def check(m):
             return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
 
         while True:
-            await dm.send("Type `addcategory`, `removecategory`, `toggleedit`, `setroles`, `removeprofile`, or `done` to finish.")
+            await dm.send("Type `addcategory`, `removecategory`, `toggleedit`, `setroles`, `removeprofile`, `editprofile`, or `done` to finish.")
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=300)
             except TimeoutError:
@@ -121,9 +115,11 @@ class Profile(commands.Cog):
                 break
 
             content = msg.content.lower()
+
             if content == 'done':
                 await dm.send("✅ Admin setup complete.")
                 break
+
             elif content.startswith('addcategory'):
                 parts = msg.content.split()
                 if len(parts) != 4:
@@ -136,6 +132,7 @@ class Profile(commands.Cog):
                     else:
                         cats[identifier] = {"name": display_name, "type": type_}
                         await dm.send(f"✅ Added category `{identifier}`.")
+
             elif content.startswith('removecategory'):
                 parts = msg.content.split()
                 if len(parts) != 2:
@@ -152,6 +149,7 @@ class Profile(commands.Cog):
                         if 'fields' in user_data and identifier in user_data['fields']:
                             del user_data['fields'][identifier]
                 await dm.send(f"✅ Category `{identifier}` removed from guild and all user profiles.")
+
             elif content.startswith('toggleedit'):
                 parts = msg.content.split()
                 if len(parts) != 2:
@@ -160,6 +158,7 @@ class Profile(commands.Cog):
                 allow_bool = parts[1].lower() == 'true'
                 await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
                 await dm.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally.")
+
             elif content.startswith('setroles'):
                 await dm.send("Type role IDs to allow users to edit their profiles, separated by spaces, or 'none' to clear.")
                 try:
@@ -172,6 +171,7 @@ class Profile(commands.Cog):
                     await dm.send("✅ Roles allowed for user edits have been updated.")
                 except TimeoutError:
                     await dm.send("⌛ Timed out setting roles.")
+
             elif content.startswith('removeprofile'):
                 await dm.send("Mention the user to remove their profile.")
                 try:
@@ -184,6 +184,33 @@ class Profile(commands.Cog):
                         await dm.send("❌ No user mentioned.")
                 except TimeoutError:
                     await dm.send("⌛ Timed out removing profiles.")
+
+            elif content.startswith('editprofile'):
+                await dm.send("Mention the user whose profile you want to edit.")
+                try:
+                    user_msg = await self.bot.wait_for('message', check=check, timeout=120)
+                    if not user_msg.mentions:
+                        await dm.send("❌ No user mentioned.")
+                        continue
+                    user = user_msg.mentions[0]
+                    user_data = await self.config.user(user).all()
+                    guild_data = await self.config.guild(ctx.guild).all()
+
+                    for identifier, category in guild_data['categories'].items():
+                        await dm.send(f"Set value for {category['name']} ({category['type']}) or type 'disable' to skip.")
+                        try:
+                            value_msg = await self.bot.wait_for('message', check=check, timeout=120)
+                            if value_msg.content.lower() != 'disable':
+                                if category['type'] == 'url' and not URL_REGEX.match(value_msg.content):
+                                    await dm.send("⚠️ Invalid URL, skipping this field.")
+                                    continue
+                                async with self.config.user(user).fields() as fields:
+                                    fields[identifier] = value_msg.content
+                        except TimeoutError:
+                            await dm.send(f"⌛ Timed out for {category['name']}, skipping.")
+                    await dm.send(f"✅ Edited profile for {user.display_name}.")
+                except TimeoutError:
+                    await dm.send("⌛ Timed out editing profile.")
 
 async def setup(bot):
     await bot.add_cog(Profile(bot))
