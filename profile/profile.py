@@ -1,6 +1,5 @@
 import discord
 from redbot.core import commands, Config, checks
-from typing import Literal
 import re
 
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
@@ -50,25 +49,9 @@ class Profile(commands.Cog):
     # --------------------------
     @commands.group()
     async def cprofileset(self, ctx):
-        pass
-
-    @cprofileset.command(name="color")
-    async def set_color(self, ctx, color: discord.Color, member: discord.Member = None):
-        member = member or ctx.author
-        guild_data = await self.config.guild(ctx.guild).all()
-        if member == ctx.author and not guild_data.get("allow_user_edit", True):
-            return await ctx.send("❌ Users are not allowed to edit profiles.")
-        await self.config.user(member).color.set(color.value)
-        await ctx.send(f"✅ {member.display_name}'s profile color has been updated.")
-
-    @cprofileset.command(name="reset")
-    async def reset_profile(self, ctx, member: discord.Member = None):
-        member = member or ctx.author
-        guild_data = await self.config.guild(ctx.guild).all()
-        if member == ctx.author and not guild_data.get("allow_user_edit", True):
-            return await ctx.send("❌ Users are not allowed to edit profiles.")
-        await self.config.user(member).clear()
-        await ctx.send(f"✅ {member.display_name}'s profile has been reset.")
+        """Profile settings - only setup and adminsetup remain."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send("❌ Available subcommands: `setup`, `adminsetup`")
 
     @cprofileset.command(name="setup")
     async def setup_profile(self, ctx, member: discord.Member = None):
@@ -115,112 +98,48 @@ class Profile(commands.Cog):
 
         await dm.send("✅ Profile setup complete!")
 
-    @cprofileset.command(name="listfields")
-    async def list_fields(self, ctx):
-        guild_data = await self.config.guild(ctx.guild).all()
-        if not guild_data['categories']:
-            return await ctx.send("❌ No profile categories available.")
-        message = "**Available Profile Categories:**\n"
-        for identifier, category in guild_data['categories'].items():
-            message += f"`{identifier}`: {category['name']} ({category['type']})\n"
-        await ctx.send(message)
-
-    @cprofileset.command(name="setfield")
-    async def set_field(self, ctx, identifier: str, *, value: str, member: discord.Member = None):
-        member = member or ctx.author
-        guild_data = await self.config.guild(ctx.guild).all()
-        if member == ctx.author and not guild_data.get("allow_user_edit", True):
-            return await ctx.send("❌ Users are not allowed to edit profiles.")
-        if identifier not in guild_data['categories']:
-            return await ctx.send("❌ That category doesn't exist.")
-        category = guild_data['categories'][identifier]
-        if category['type'] == 'url' and not URL_REGEX.match(value):
-            return await ctx.send("❌ That value must be a valid URL.")
-        async with self.config.user(member).fields() as fields:
-            fields[identifier] = value
-        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
-
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Walk an admin through categories and global settings via DMs."""
-        try:
-            dm = await ctx.author.create_dm()
-        except discord.Forbidden:
-            return await ctx.send("❌ Cannot send DMs to the bot owner.")
+        """Walk an admin through categories and global settings in the same channel."""
+        channel = ctx.channel
+        await channel.send("Starting admin setup. You can add categories and toggle user profile edits globally.")
 
-        await dm.send("Starting admin setup. You can add categories and toggle user profile edits globally.")
         def check(m):
-            return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
+            return m.author == ctx.author and m.channel == channel
 
         while True:
-            await dm.send("Type `addcategory` to add a new category, `toggleedit` to enable/disable user edits, `done` to finish.")
+            await channel.send("Type `addcategory` to add a new category, `toggleedit` to enable/disable user edits, `done` to finish.")
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=300)
             except TimeoutError:
-                await dm.send("⌛ Admin setup timed out.")
+                await channel.send("⌛ Admin setup timed out.")
                 break
 
             content = msg.content.lower()
             if content == 'done':
-                await dm.send("✅ Admin setup complete.")
+                await channel.send("✅ Admin setup complete.")
                 break
             elif content.startswith('addcategory'):
                 parts = msg.content.split()
                 if len(parts) != 4:
-                    await dm.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
+                    await channel.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
                     continue
                 _, identifier, display_name, type_ = parts
                 async with self.config.guild(ctx.guild).categories() as cats:
                     if identifier in cats:
-                        await dm.send("❌ That identifier already exists.")
+                        await channel.send("❌ That identifier already exists.")
                     else:
                         cats[identifier] = {"name": display_name, "type": type_}
-                        await dm.send(f"✅ Added category `{identifier}`.")
+                        await channel.send(f"✅ Added category `{identifier}`.")
             elif content.startswith('toggleedit'):
                 parts = msg.content.split()
                 if len(parts) != 2:
-                    await dm.send("❌ Usage: toggleedit <True|False>")
+                    await channel.send("❌ Usage: toggleedit <True|False>")
                     continue
                 allow_bool = parts[1].lower() == 'true'
                 await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
-                await dm.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally.")
-
-    # --------------------------
-    # Admin category commands
-    # --------------------------
-    @cprofileset.group(name="category")
-    @checks.is_owner()
-    async def category_group(self, ctx):
-        pass
-
-    @category_group.command(name="add")
-    async def add_category(self, ctx, identifier: str, display_name: str, type: Literal["text", "url"]):
-        async with self.config.guild(ctx.guild).categories() as cats:
-            if identifier in cats:
-                return await ctx.send("❌ That identifier already exists.")
-            cats[identifier] = {"name": display_name, "type": type}
-        await ctx.send(f"✅ Added category `{identifier}` with name `{display_name}` and type `{type}`.")
-
-    @category_group.command(name="remove")
-    async def remove_category(self, ctx, identifier: str):
-        async with self.config.guild(ctx.guild).categories() as cats:
-            if identifier not in cats:
-                return await ctx.send("❌ That category doesn't exist.")
-            del cats[identifier]
-        await ctx.send(f"✅ Category `{identifier}` has been removed.")
-
-    @category_group.command(name="edituser")
-    async def edit_user(self, ctx, member: discord.Member, identifier: str, *, value: str):
-        guild_data = await self.config.guild(ctx.guild).all()
-        if identifier not in guild_data['categories']:
-            return await ctx.send("❌ That category doesn't exist.")
-        category = guild_data['categories'][identifier]
-        if category['type'] == 'url' and not URL_REGEX.match(value):
-            return await ctx.send("❌ That value must be a valid URL.")
-        async with self.config.user(member).fields() as fields:
-            fields[identifier] = value
-        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+                await channel.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally.")
 
 
 async def setup(bot):
