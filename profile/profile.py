@@ -160,11 +160,11 @@ class Profile(commands.Cog):
 
                 all_users = await self.config.all_users()
                 users_with_profiles = []
-                for user_id, data in all_users.items():
-                    if data.get("fields") or data.get("color"):
-                        member = ctx.guild.get_member(int(user_id))
-                        if member:
-                            users_with_profiles.append(f"{member} (`{user_id}`)")
+                for user_id_str, data in all_users.items():
+                    member = ctx.guild.get_member(int(user_id_str))
+                    if member is not None:
+                        if data.get("color") or data.get("fields"):
+                            users_with_profiles.append(f"{member} (`{user_id_str}`)")
                 user_list = "\n".join(users_with_profiles) or "None"
 
                 await channel.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
