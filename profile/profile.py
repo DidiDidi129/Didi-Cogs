@@ -115,10 +115,10 @@ class Profile(commands.Cog):
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Admin setup: categories, user profile edits (including color), and global settings."""
+        """Admin setup: categories, user profile edits (including color), removing fields, and global settings."""
         channel = ctx.channel
         await channel.send(
-            "Starting admin setup. You can add categories, toggle user edits, or edit user profiles including colors."
+            "Starting admin setup. You can add/remove categories, toggle user edits, or edit user profiles including colors."
         )
 
         def check(m):
@@ -128,8 +128,10 @@ class Profile(commands.Cog):
             await channel.send(
                 "Options:\n"
                 "`addcategory <id> <name> <type:text|url>`\n"
+                "`removecategory <id>`\n"
                 "`toggleedit <True|False>`\n"
                 "`edituser <@user> <field_or_color> <value>`\n"
+                "`removeuserfield <@user> <field>`\n"
                 "`done` to finish setup."
             )
             try:
@@ -159,6 +161,24 @@ class Profile(commands.Cog):
                     else:
                         cats[identifier] = {"name": display_name, "type": type_}
                         await channel.send(f"✅ Added category `{identifier}`.")
+
+            # Remove category
+            elif command == "removecategory":
+                if len(parts) != 2:
+                    await channel.send("❌ Usage: removecategory <id>")
+                    continue
+                _, identifier = parts
+                async with self.config.guild(ctx.guild).categories() as cats:
+                    if identifier not in cats:
+                        await channel.send("❌ That category does not exist.")
+                        continue
+                    del cats[identifier]
+                # Remove from all users
+                async for user_id, _ in self.config.all_users():
+                    async with self.config.user_from_id(user_id).fields() as fields:
+                        if identifier in fields:
+                            del fields[identifier]
+                await channel.send(f"✅ Category `{identifier}` removed from guild and all users.")
 
             # Toggle user edit
             elif command == "toggleedit":
@@ -205,6 +225,28 @@ class Profile(commands.Cog):
                     async with self.config.user(member).fields() as fields:
                         fields[field] = value
                     await channel.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+
+            # Remove user field
+            elif command == "removeuserfield":
+                if len(parts) != 3:
+                    await channel.send("❌ Usage: removeuserfield <@user> <field>")
+                    continue
+                _, user_mention, field = parts
+
+                member = None
+                if user_mention.startswith("<@") and user_mention.endswith(">"):
+                    user_id = int(user_mention.strip("<@!>"))
+                    member = ctx.guild.get_member(user_id)
+                if member is None:
+                    await channel.send("❌ Could not find that user in this server.")
+                    continue
+
+                async with self.config.user(member).fields() as fields:
+                    if field in fields:
+                        del fields[field]
+                        await channel.send(f"✅ Removed `{field}` from {member.display_name}'s profile.")
+                    else:
+                        await channel.send(f"❌ {member.display_name} does not have a `{field}` field.")
 
 async def setup(bot):
     await bot.add_cog(Profile(bot))
