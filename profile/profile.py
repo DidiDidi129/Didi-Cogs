@@ -3,9 +3,7 @@ from redbot.core import commands, Config, checks
 from typing import Literal
 import re
 
-
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
-
 
 class Profile(commands.Cog):
     """User profiles with customizable fields."""
@@ -14,7 +12,7 @@ class Profile(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=13572468)
         default_user = {
-            "bio": None,
+            "color": None,
             "fields": {},
         }
         default_guild = {
@@ -33,15 +31,21 @@ class Profile(commands.Cog):
         user_data = await self.config.user(member).all()
         guild_data = await self.config.guild(ctx.guild).all()
 
+        color = discord.Color(user_data['color']) if user_data['color'] else member.color
         embed = discord.Embed(
             title=f"{member.display_name}'s Profile",
-            color=member.color,
+            color=color,
         )
         embed.set_thumbnail(url=member.display_avatar.url)
 
-        if user_data["bio"]:
-            embed.add_field(name="Bio", value=user_data["bio"], inline=False)
+        # Username
+        embed.add_field(name="Username", value=str(member), inline=False)
 
+        # Discord bio
+        if hasattr(member, 'bio') and member.bio:
+            embed.add_field(name="Bio", value=member.bio, inline=False)
+
+        # Custom fields
         for identifier, category in guild_data["categories"].items():
             if identifier in user_data["fields"]:
                 embed.add_field(
@@ -49,6 +53,11 @@ class Profile(commands.Cog):
                     value=user_data["fields"][identifier],
                     inline=False,
                 )
+
+        # Badges
+        badges = [badge.name for badge in member.public_flags.all()] if hasattr(member, 'public_flags') else []
+        if badges:
+            embed.add_field(name="Badges", value=', '.join(badges), inline=False)
 
         await ctx.send(embed=embed)
 
@@ -60,11 +69,11 @@ class Profile(commands.Cog):
         """Set your profile information."""
         pass
 
-    @cprofileset.command(name="bio")
-    async def set_bio(self, ctx, *, bio: str):
-        """Set your bio."""
-        await self.config.user(ctx.author).bio.set(bio)
-        await ctx.send("✅ Your bio has been updated.")
+    @cprofileset.command(name="color")
+    async def set_color(self, ctx, color: discord.Color):
+        """Set your profile embed color."""
+        await self.config.user(ctx.author).color.set(color.value)
+        await ctx.send(f"✅ Your profile color has been updated.")
 
     @cprofileset.command(name="reset")
     async def reset_profile(self, ctx):
@@ -74,7 +83,7 @@ class Profile(commands.Cog):
 
     @cprofileset.command()
     async def field(self, ctx, identifier: str, *, value: str):
-        """Set one of your custom profile fields."""
+        """Set a value for a predefined category (bot owner only defines categories)."""
         guild_data = await self.config.guild(ctx.guild).all()
         if identifier not in guild_data["categories"]:
             return await ctx.send("❌ That category doesn't exist.")
