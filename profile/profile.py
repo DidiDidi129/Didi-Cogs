@@ -27,7 +27,7 @@ class Profile(commands.Cog):
     # Profile view command
     # --------------------------
     @commands.command()
-    async def profile(self, ctx, member: discord.Member = None):
+    async def cprofile(self, ctx, member: discord.Member = None):
         """Show a user's profile."""
         member = member or ctx.author
         user_data = await self.config.user(member).all()
@@ -56,23 +56,23 @@ class Profile(commands.Cog):
     # User settings
     # --------------------------
     @commands.group()
-    async def profileset(self, ctx):
+    async def cprofileset(self, ctx):
         """Set your profile information."""
         pass
 
-    @profileset.command(name="bio")
+    @cprofileset.command(name="bio")
     async def set_bio(self, ctx, *, bio: str):
         """Set your bio."""
         await self.config.user(ctx.author).bio.set(bio)
         await ctx.send("✅ Your bio has been updated.")
 
-    @profileset.command(name="reset")
+    @cprofileset.command(name="reset")
     async def reset_profile(self, ctx):
         """Reset your profile."""
         await self.config.user(ctx.author).clear()
         await ctx.send("✅ Your profile has been reset.")
 
-    @profileset.command()
+    @cprofileset.command()
     async def field(self, ctx, identifier: str, *, value: str):
         """Set one of your custom profile fields."""
         guild_data = await self.config.guild(ctx.guild).all()
@@ -91,7 +91,7 @@ class Profile(commands.Cog):
     # --------------------------
     # Admin commands
     # --------------------------
-    @profileset.group(name="category")
+    @cprofileset.group(name="category")
     @checks.is_owner()
     async def category_group(self, ctx):
         """Manage profile categories."""
