@@ -1,5 +1,6 @@
 import discord
 from redbot.core import commands, Config, checks
+from typing import Literal
 import re
 
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
@@ -16,12 +17,14 @@ class Profile(commands.Cog):
         }
         default_guild = {
             "categories": {},  # {identifier: {"name": str, "type": str}}
-            "allow_user_edit": False,
-            "roles_allowed": []  # roles allowed to edit their own profiles
+            "allow_user_edit": True  # global toggle for user edits
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
 
+    # --------------------------
+    # Profile view command
+    # --------------------------
     @commands.command()
     async def cprofile(self, ctx, member: discord.Member = None):
         member = member or ctx.author
@@ -42,26 +45,44 @@ class Profile(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    # --------------------------
+    # User settings
+    # --------------------------
     @commands.group()
     async def cprofileset(self, ctx):
         pass
 
-    @cprofileset.command(name="setup")
-    async def setup_profile(self, ctx, member: discord.Member = None):
-        """User setup runs in DMs."""
+    @cprofileset.command(name="color")
+    async def set_color(self, ctx, color: discord.Color, member: discord.Member = None):
         member = member or ctx.author
         guild_data = await self.config.guild(ctx.guild).all()
-        member_roles = [role.id for role in ctx.author.roles]
-        if member == ctx.author and not guild_data.get("allow_user_edit", False) and not any(r in guild_data['roles_allowed'] for r in member_roles):
-            return await ctx.send("❌ You are not allowed to edit your profile.")
+        if member == ctx.author and not guild_data.get("allow_user_edit", True):
+            return await ctx.send("❌ Users are not allowed to edit profiles.")
+        await self.config.user(member).color.set(color.value)
+        await ctx.send(f"✅ {member.display_name}'s profile color has been updated.")
+
+    @cprofileset.command(name="reset")
+    async def reset_profile(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        guild_data = await self.config.guild(ctx.guild).all()
+        if member == ctx.author and not guild_data.get("allow_user_edit", True):
+            return await ctx.send("❌ Users are not allowed to edit profiles.")
+        await self.config.user(member).clear()
+        await ctx.send(f"✅ {member.display_name}'s profile has been reset.")
+
+    @cprofileset.command(name="setup")
+    async def setup_profile(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        guild_data = await self.config.guild(ctx.guild).all()
+        if member == ctx.author and not guild_data.get("allow_user_edit", True):
+            return await ctx.send("❌ Users are not allowed to edit profiles.")
 
         try:
             dm = await member.create_dm()
         except discord.Forbidden:
-            return await ctx.send("❌ I cannot send DMs to you. Please check your privacy settings.")
+            return await ctx.send("❌ I cannot send DMs to the user.")
 
         await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) for your embed or 'disable' to skip.")
-
         def check_color(m):
             return m.author == member and isinstance(m.channel, discord.DMChannel)
 
@@ -79,10 +100,8 @@ class Profile(commands.Cog):
         guild_data = await self.config.guild(ctx.guild).all()
         for identifier, category in guild_data['categories'].items():
             await dm.send(f"Set your {category['name']} ({category['type']}) or type 'disable' to skip.")
-
             def check_field(m):
                 return m.author == member and isinstance(m.channel, discord.DMChannel)
-
             try:
                 msg = await self.bot.wait_for('message', check=check_field, timeout=120)
                 if msg.content.lower() != 'disable':
@@ -96,128 +115,113 @@ class Profile(commands.Cog):
 
         await dm.send("✅ Profile setup complete!")
 
+    @cprofileset.command(name="listfields")
+    async def list_fields(self, ctx):
+        guild_data = await self.config.guild(ctx.guild).all()
+        if not guild_data['categories']:
+            return await ctx.send("❌ No profile categories available.")
+        message = "**Available Profile Categories:**\n"
+        for identifier, category in guild_data['categories'].items():
+            message += f"`{identifier}`: {category['name']} ({category['type']})\n"
+        await ctx.send(message)
+
+    @cprofileset.command(name="setfield")
+    async def set_field(self, ctx, identifier: str, *, value: str, member: discord.Member = None):
+        member = member or ctx.author
+        guild_data = await self.config.guild(ctx.guild).all()
+        if member == ctx.author and not guild_data.get("allow_user_edit", True):
+            return await ctx.send("❌ Users are not allowed to edit profiles.")
+        if identifier not in guild_data['categories']:
+            return await ctx.send("❌ That category doesn't exist.")
+        category = guild_data['categories'][identifier]
+        if category['type'] == 'url' and not URL_REGEX.match(value):
+            return await ctx.send("❌ That value must be a valid URL.")
+        async with self.config.user(member).fields() as fields:
+            fields[identifier] = value
+        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Admin setup runs in the channel it was invoked in."""
-        channel = ctx.channel
-        await channel.send(
-            "Starting admin setup. You can manage categories, toggle user edits, roles, remove profiles, or edit any user's profile."
-        )
+        """Walk an admin through categories and global settings via DMs."""
+        try:
+            dm = await ctx.author.create_dm()
+        except discord.Forbidden:
+            return await ctx.send("❌ Cannot send DMs to the bot owner.")
 
+        await dm.send("Starting admin setup. You can add categories and toggle user profile edits globally.")
         def check(m):
-            return m.author == ctx.author and m.channel == channel
+            return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
 
         while True:
-            await channel.send(
-                "Type `addcategory`, `removecategory`, `toggleedit`, `setroles`, `removeprofile`, `editprofile`, or `done` to finish."
-            )
+            await dm.send("Type `addcategory` to add a new category, `toggleedit` to enable/disable user edits, `done` to finish.")
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=300)
             except TimeoutError:
-                await channel.send("⌛ Admin setup timed out.")
+                await dm.send("⌛ Admin setup timed out.")
                 break
 
             content = msg.content.lower()
-
             if content == 'done':
-                await channel.send("✅ Admin setup complete.")
+                await dm.send("✅ Admin setup complete.")
                 break
-
             elif content.startswith('addcategory'):
                 parts = msg.content.split()
                 if len(parts) != 4:
-                    await channel.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
+                    await dm.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
                     continue
                 _, identifier, display_name, type_ = parts
                 async with self.config.guild(ctx.guild).categories() as cats:
                     if identifier in cats:
-                        await channel.send("❌ That identifier already exists.")
+                        await dm.send("❌ That identifier already exists.")
                     else:
                         cats[identifier] = {"name": display_name, "type": type_}
-                        await channel.send(f"✅ Added category `{identifier}`.")
-
-            elif content.startswith('removecategory'):
-                parts = msg.content.split()
-                if len(parts) != 2:
-                    await channel.send("❌ Usage: removecategory <identifier>")
-                    continue
-                _, identifier = parts
-                async with self.config.guild(ctx.guild).categories() as cats:
-                    if identifier not in cats:
-                        await channel.send("❌ That category doesn't exist.")
-                        continue
-                    del cats[identifier]
-                async with self.config.all_users() as users:
-                    for user_id, user_data in users.items():
-                        if 'fields' in user_data and identifier in user_data['fields']:
-                            del user_data['fields'][identifier]
-                await channel.send(f"✅ Category `{identifier}` removed from guild and all user profiles.")
-
+                        await dm.send(f"✅ Added category `{identifier}`.")
             elif content.startswith('toggleedit'):
                 parts = msg.content.split()
                 if len(parts) != 2:
-                    await channel.send("❌ Usage: toggleedit <True|False>")
+                    await dm.send("❌ Usage: toggleedit <True|False>")
                     continue
                 allow_bool = parts[1].lower() == 'true'
                 await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
-                await channel.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally.")
+                await dm.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally.")
 
-            elif content.startswith('setroles'):
-                await channel.send("Type role IDs to allow users to edit their profiles, separated by spaces, or 'none' to clear.")
-                try:
-                    role_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                    if role_msg.content.lower() == 'none':
-                        await self.config.guild(ctx.guild).roles_allowed.set([])
-                    else:
-                        role_ids = [int(r) for r in role_msg.content.split() if r.isdigit()]
-                        await self.config.guild(ctx.guild).roles_allowed.set(role_ids)
-                    await channel.send("✅ Roles allowed for user edits have been updated.")
-                except TimeoutError:
-                    await channel.send("⌛ Timed out setting roles.")
+    # --------------------------
+    # Admin category commands
+    # --------------------------
+    @cprofileset.group(name="category")
+    @checks.is_owner()
+    async def category_group(self, ctx):
+        pass
 
-            elif content.startswith('removeprofile'):
-                await channel.send("Type the user's ID or exact username#discriminator to remove their profile.")
-                try:
-                    user_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                    user_input = user_msg.content.strip()
-                    user = discord.utils.get(self.bot.get_all_members(), lambda m: str(m.id) == user_input or str(m) == user_input)
-                    if user:
-                        await self.config.user(user).clear()
-                        await channel.send(f"✅ Removed profile for {user.display_name}.")
-                    else:
-                        await channel.send("❌ User not found.")
-                except TimeoutError:
-                    await channel.send("⌛ Timed out removing profile.")
+    @category_group.command(name="add")
+    async def add_category(self, ctx, identifier: str, display_name: str, type: Literal["text", "url"]):
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier in cats:
+                return await ctx.send("❌ That identifier already exists.")
+            cats[identifier] = {"name": display_name, "type": type}
+        await ctx.send(f"✅ Added category `{identifier}` with name `{display_name}` and type `{type}`.")
 
-            elif content.startswith('editprofile'):
-                await channel.send("Type the user's ID or exact username#discriminator to edit their profile.")
-                try:
-                    user_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                    user_input = user_msg.content.strip()
-                    user = discord.utils.get(self.bot.get_all_members(), lambda m: str(m.id) == user_input or str(m) == user_input)
-                    if not user:
-                        await channel.send("❌ User not found.")
-                        continue
+    @category_group.command(name="remove")
+    async def remove_category(self, ctx, identifier: str):
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier not in cats:
+                return await ctx.send("❌ That category doesn't exist.")
+            del cats[identifier]
+        await ctx.send(f"✅ Category `{identifier}` has been removed.")
 
-                    user_data = await self.config.user(user).all()
-                    guild_data = await self.config.guild(ctx.guild).all()
+    @category_group.command(name="edituser")
+    async def edit_user(self, ctx, member: discord.Member, identifier: str, *, value: str):
+        guild_data = await self.config.guild(ctx.guild).all()
+        if identifier not in guild_data['categories']:
+            return await ctx.send("❌ That category doesn't exist.")
+        category = guild_data['categories'][identifier]
+        if category['type'] == 'url' and not URL_REGEX.match(value):
+            return await ctx.send("❌ That value must be a valid URL.")
+        async with self.config.user(member).fields() as fields:
+            fields[identifier] = value
+        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
 
-                    for identifier, category in guild_data['categories'].items():
-                        await channel.send(f"Set value for {category['name']} ({category['type']}) or type 'disable' to skip.")
-                        try:
-                            value_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                            if value_msg.content.lower() != 'disable':
-                                if category['type'] == 'url' and not URL_REGEX.match(value_msg.content):
-                                    await channel.send("⚠️ Invalid URL, skipping this field.")
-                                    continue
-                                async with self.config.user(user).fields() as fields:
-                                    fields[identifier] = value_msg.content
-                        except TimeoutError:
-                            await channel.send(f"⌛ Timed out for {category['name']}, skipping.")
-                    await channel.send(f"✅ Edited profile for {user.display_name}.")
-                except TimeoutError:
-                    await channel.send("⌛ Timed out editing profile.")
 
 async def setup(bot):
     await bot.add_cog(Profile(bot))
