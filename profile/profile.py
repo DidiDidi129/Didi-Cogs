@@ -16,9 +16,9 @@ class Profile(commands.Cog):
             "fields": {}
         }
         default_guild = {
-            "categories": {},
-            "allow_user_edit": False,
-            "roles_allowed": []
+            "categories": {},  # {identifier: {"name": str, "type": str}}
+            "allow_user_edit": False,  # default: users cannot edit profiles
+            "roles_allowed": []  # roles allowed to edit their own profiles
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
@@ -172,46 +172,45 @@ class Profile(commands.Cog):
                 except TimeoutError:
                     await dm.send("⌛ Timed out setting roles.")
 
-            elif content.startswith('removeprofile') or content.startswith('editprofile'):
-                action = content
-                await dm.send("Type the username#discriminator or user ID of the member.")
+            elif content.startswith('removeprofile'):
+                await dm.send("Mention the user to remove their profile.")
                 try:
                     user_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                    guild = ctx.guild
-                    user_input = user_msg.content.strip()
-
-                    user = None
-                    if user_input.isdigit():
-                        user = guild.get_member(int(user_input))
-                    elif '#' in user_input:
-                        name, discrim = user_input.split('#')
-                        user = discord.utils.get(guild.members, name=name, discriminator=discrim)
-
-                    if not user:
-                        await dm.send("❌ User not found.")
-                        continue
-
-                    if action == 'removeprofile':
-                        await self.config.user(user).clear()
-                        await dm.send(f"✅ Removed profile for {user.display_name}.")
+                    if user_msg.mentions:
+                        for user in user_msg.mentions:
+                            await self.config.user(user).clear()
+                        await dm.send(f"✅ Removed profile for mentioned user(s).")
                     else:
-                        user_data = await self.config.user(user).all()
-                        guild_data = await self.config.guild(ctx.guild).all()
-                        for identifier, category in guild_data['categories'].items():
-                            await dm.send(f"Set value for {category['name']} ({category['type']}) or type 'disable' to skip.")
-                            try:
-                                value_msg = await self.bot.wait_for('message', check=check, timeout=120)
-                                if value_msg.content.lower() != 'disable':
-                                    if category['type'] == 'url' and not URL_REGEX.match(value_msg.content):
-                                        await dm.send("⚠️ Invalid URL, skipping this field.")
-                                        continue
-                                    async with self.config.user(user).fields() as fields:
-                                        fields[identifier] = value_msg.content
-                            except TimeoutError:
-                                await dm.send(f"⌛ Timed out for {category['name']}, skipping.")
-                        await dm.send(f"✅ Edited profile for {user.display_name}.")
+                        await dm.send("❌ No user mentioned.")
                 except TimeoutError:
-                    await dm.send("⌛ Timed out waiting for user input.")
+                    await dm.send("⌛ Timed out removing profiles.")
+
+            elif content.startswith('editprofile'):
+                await dm.send("Mention the user whose profile you want to edit.")
+                try:
+                    user_msg = await self.bot.wait_for('message', check=check, timeout=120)
+                    if not user_msg.mentions:
+                        await dm.send("❌ No user mentioned.")
+                        continue
+                    user = user_msg.mentions[0]
+                    user_data = await self.config.user(user).all()
+                    guild_data = await self.config.guild(ctx.guild).all()
+
+                    for identifier, category in guild_data['categories'].items():
+                        await dm.send(f"Set value for {category['name']} ({category['type']}) or type 'disable' to skip.")
+                        try:
+                            value_msg = await self.bot.wait_for('message', check=check, timeout=120)
+                            if value_msg.content.lower() != 'disable':
+                                if category['type'] == 'url' and not URL_REGEX.match(value_msg.content):
+                                    await dm.send("⚠️ Invalid URL, skipping this field.")
+                                    continue
+                                async with self.config.user(user).fields() as fields:
+                                    fields[identifier] = value_msg.content
+                        except TimeoutError:
+                            await dm.send(f"⌛ Timed out for {category['name']}, skipping.")
+                    await dm.send(f"✅ Edited profile for {user.display_name}.")
+                except TimeoutError:
+                    await dm.send("⌛ Timed out editing profile.")
 
 async def setup(bot):
     await bot.add_cog(Profile(bot))
