@@ -1,0 +1,12 @@
+{
+  "author": ["Didi"],
+  "install_msg": "✅ Thanks for installing the Profile cog! Use [p]profile to view profiles and [p]profileset to set them up.",
+  "name": "Profile",
+  "short": "User profiles with customizable fields.",
+  "description": "Allows users to set bios and custom fields in their profile. Bot owners can add categories (text or URL types).",
+  "tags": ["profile", "utility", "social"],
+  "requirements": [],
+  "hidden": false,
+  "disabled": false,
+  "min_bot_version": "3.5.0"
+}
