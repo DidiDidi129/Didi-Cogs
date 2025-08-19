@@ -39,15 +39,15 @@ class Profile(commands.Cog):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Username + Pronouns
-        username_line = str(member)
-        if user_data.get('pronouns'):
-            username_line += f' | {user_data["pronouns"]}'
-        embed.add_field(name="Username", value=username_line, inline=False)
+        # Top inline fields: Username and Pronouns
+        embed.add_field(name="Username", value=str(member), inline=True)
+        embed.add_field(name="Pronouns", value=user_data.get('pronouns', 'None'), inline=True)
 
-        # Discord bio
-        if hasattr(member, 'bio') and member.bio:
+        # Always show Discord bio (sync with user's current Discord bio)
+        if member.bio:
             embed.add_field(name="Bio", value=member.bio, inline=False)
+        else:
+            embed.add_field(name="Bio", value="None", inline=False)
 
         # Custom fields
         for identifier, category in guild_data["categories"].items():
@@ -93,7 +93,7 @@ class Profile(commands.Cog):
         if identifier not in guild_data["categories"]:
             return await ctx.send("❌ That category doesn't exist.")
 
-        category = guild_data["categories"][identifier]
+        category = guild_data['categories'][identifier]
         if category['type'] == 'url' and not URL_REGEX.match(value):
             return await ctx.send("❌ That value must be a valid URL.")
 
