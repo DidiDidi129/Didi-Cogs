@@ -75,10 +75,15 @@ class Profile(commands.Cog):
         await self.config.user(ctx.author).pronouns.set(pronouns)
         await ctx.send(f"✅ Your pronouns have been updated to: {pronouns}")
 
-    # ... rest of the cog remains unchanged ...
+    # --------------------------
+    # Admin category commands
+    # --------------------------
+    @cprofileset.group(name="category")
+    @checks.is_owner()
+    async def category_group(self, ctx):
+        pass
 
     @category_group.command(name="allowpronouns")
-    @checks.is_owner()
     async def allow_pronouns(self, ctx, allow: bool):
         await self.config.guild(ctx.guild).allow_pronouns.set(allow)
         await ctx.send(f"✅ Pronouns are now {'enabled' if allow else 'disabled'} for this server.")
