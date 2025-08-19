@@ -13,10 +13,11 @@ class Profile(commands.Cog):
         self.config = Config.get_conf(self, identifier=13572468)
         default_user = {
             "color": None,
-            "fields": {}
+            "fields": {},
+            "can_edit": True
         }
         default_guild = {
-            "categories": {}  # {identifier: {"name": str, "type": str}}
+            "categories": {},  # {identifier: {"name": str, "type": str}}
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
@@ -36,18 +37,11 @@ class Profile(commands.Cog):
             color=color,
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-
-        # Top inline fields: Username
         embed.add_field(name="Username", value=str(member), inline=True)
 
-        # Custom fields
         for identifier, category in guild_data["categories"].items():
             if identifier in user_data["fields"]:
-                embed.add_field(
-                    name=category["name"],
-                    value=user_data["fields"][identifier],
-                    inline=False,
-                )
+                embed.add_field(name=category["name"], value=user_data["fields"][identifier], inline=False)
 
         await ctx.send(embed=embed)
 
@@ -60,23 +54,30 @@ class Profile(commands.Cog):
 
     @cprofileset.command(name="color")
     async def set_color(self, ctx, color: discord.Color):
+        user_data = await self.config.user(ctx.author).all()
+        if not user_data.get("can_edit", True):
+            return await ctx.send("❌ You are not allowed to edit your profile.")
         await self.config.user(ctx.author).color.set(color.value)
-        await ctx.send(f"✅ Your profile color has been updated.")
+        await ctx.send("✅ Your profile color has been updated.")
 
     @cprofileset.command(name="reset")
     async def reset_profile(self, ctx):
+        user_data = await self.config.user(ctx.author).all()
+        if not user_data.get("can_edit", True):
+            return await ctx.send("❌ You are not allowed to edit your profile.")
         await self.config.user(ctx.author).clear()
         await ctx.send("✅ Your profile has been reset.")
 
     @cprofileset.command(name="setup")
     async def setup_profile(self, ctx):
-        """Walk the user through setting up their profile in DMs."""
+        user_data = await self.config.user(ctx.author).all()
+        if not user_data.get("can_edit", True):
+            return await ctx.send("❌ You are not allowed to edit your profile.")
         try:
             dm = await ctx.author.create_dm()
         except discord.Forbidden:
             return await ctx.send("❌ I cannot send you DMs. Please allow DMs from this server.")
 
-        # Ask for embed color
         await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) for your embed or 'disable' to skip.")
         def check_color(m):
             return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
@@ -92,14 +93,11 @@ class Profile(commands.Cog):
         except TimeoutError:
             await dm.send("⌛ Setup timed out, skipping color.")
 
-        # Ask for each predefined field
         guild_data = await self.config.guild(ctx.guild).all()
         for identifier, category in guild_data['categories'].items():
             await dm.send(f"Set your {category['name']} ({category['type']}) or type 'disable' to skip.")
-
             def check_field(m):
                 return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
-
             try:
                 msg = await self.bot.wait_for('message', check=check_field, timeout=120)
                 if msg.content.lower() != 'disable':
@@ -112,6 +110,31 @@ class Profile(commands.Cog):
                 await dm.send(f"⌛ Setup timed out for {category['name']}, skipping.")
 
         await dm.send("✅ Profile setup complete!")
+
+    @cprofileset.command(name="listfields")
+    async def list_fields(self, ctx):
+        guild_data = await self.config.guild(ctx.guild).all()
+        if not guild_data['categories']:
+            return await ctx.send("❌ No profile categories available.")
+        message = "**Available Profile Categories:**\n"
+        for identifier, category in guild_data['categories'].items():
+            message += f"`{identifier}`: {category['name']} ({category['type']})\n"
+        await ctx.send(message)
+
+    @cprofileset.command(name="setfield")
+    async def set_field(self, ctx, identifier: str, *, value: str):
+        user_data = await self.config.user(ctx.author).all()
+        if not user_data.get("can_edit", True):
+            return await ctx.send("❌ You are not allowed to edit your profile.")
+        guild_data = await self.config.guild(ctx.guild).all()
+        if identifier not in guild_data['categories']:
+            return await ctx.send("❌ That category doesn't exist.")
+        category = guild_data['categories'][identifier]
+        if category['type'] == 'url' and not URL_REGEX.match(value):
+            return await ctx.send("❌ That value must be a valid URL.")
+        async with self.config.user(ctx.author).fields() as fields:
+            fields[identifier] = value
+        await ctx.send(f"✅ Your {category['name']} has been updated.")
 
     # --------------------------
     # Admin category commands
@@ -136,6 +159,24 @@ class Profile(commands.Cog):
                 return await ctx.send("❌ That category doesn't exist.")
             del cats[identifier]
         await ctx.send(f"✅ Category `{identifier}` has been removed.")
+
+    @category_group.command(name="allowedit")
+    async def allow_edit(self, ctx, member: discord.Member, allow: bool):
+        async with self.config.user(member).all() as user_data:
+            user_data['can_edit'] = allow
+        await ctx.send(f"✅ {member.display_name} can now {'edit' if allow else 'not edit'} their profile.")
+
+    @category_group.command(name="edituser")
+    async def edit_user(self, ctx, member: discord.Member, identifier: str, *, value: str):
+        guild_data = await self.config.guild(ctx.guild).all()
+        if identifier not in guild_data['categories']:
+            return await ctx.send("❌ That category doesn't exist.")
+        category = guild_data['categories'][identifier]
+        if category['type'] == 'url' and not URL_REGEX.match(value):
+            return await ctx.send("❌ That value must be a valid URL.")
+        async with self.config.user(member).fields() as fields:
+            fields[identifier] = value
+        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
 
 
 async def setup(bot):
