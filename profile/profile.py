@@ -53,41 +53,45 @@ class Profile(commands.Cog):
         pass
 
     @cprofileset.command(name="color")
-    async def set_color(self, ctx, color: discord.Color):
-        user_data = await self.config.user(ctx.author).all()
-        if not user_data.get("can_edit", True):
+    async def set_color(self, ctx, color: discord.Color, member: discord.Member = None):
+        member = member or ctx.author
+        user_data = await self.config.user(member).all()
+        if member == ctx.author and not user_data.get("can_edit", True):
             return await ctx.send("❌ You are not allowed to edit your profile.")
-        await self.config.user(ctx.author).color.set(color.value)
-        await ctx.send("✅ Your profile color has been updated.")
+        await self.config.user(member).color.set(color.value)
+        await ctx.send(f"✅ {member.display_name}'s profile color has been updated.")
 
     @cprofileset.command(name="reset")
-    async def reset_profile(self, ctx):
-        user_data = await self.config.user(ctx.author).all()
-        if not user_data.get("can_edit", True):
+    async def reset_profile(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        user_data = await self.config.user(member).all()
+        if member == ctx.author and not user_data.get("can_edit", True):
             return await ctx.send("❌ You are not allowed to edit your profile.")
-        await self.config.user(ctx.author).clear()
-        await ctx.send("✅ Your profile has been reset.")
+        await self.config.user(member).clear()
+        await ctx.send(f"✅ {member.display_name}'s profile has been reset.")
 
     @cprofileset.command(name="setup")
-    async def setup_profile(self, ctx):
-        user_data = await self.config.user(ctx.author).all()
-        if not user_data.get("can_edit", True):
+    async def setup_profile(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        user_data = await self.config.user(member).all()
+        if member == ctx.author and not user_data.get("can_edit", True):
             return await ctx.send("❌ You are not allowed to edit your profile.")
+
         try:
-            dm = await ctx.author.create_dm()
+            dm = await member.create_dm()
         except discord.Forbidden:
-            return await ctx.send("❌ I cannot send you DMs. Please allow DMs from this server.")
+            return await ctx.send("❌ I cannot send DMs to the user.")
 
         await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) for your embed or 'disable' to skip.")
         def check_color(m):
-            return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
+            return m.author == member and isinstance(m.channel, discord.DMChannel)
 
         try:
             msg = await self.bot.wait_for('message', check=check_color, timeout=120)
             if msg.content.lower() != 'disable':
                 try:
                     color = discord.Color(int(msg.content.strip('#'), 16))
-                    await self.config.user(ctx.author).color.set(color.value)
+                    await self.config.user(member).color.set(color.value)
                 except ValueError:
                     await dm.send("⚠️ Invalid color, skipping.")
         except TimeoutError:
@@ -97,14 +101,14 @@ class Profile(commands.Cog):
         for identifier, category in guild_data['categories'].items():
             await dm.send(f"Set your {category['name']} ({category['type']}) or type 'disable' to skip.")
             def check_field(m):
-                return m.author == ctx.author and isinstance(m.channel, discord.DMChannel)
+                return m.author == member and isinstance(m.channel, discord.DMChannel)
             try:
                 msg = await self.bot.wait_for('message', check=check_field, timeout=120)
                 if msg.content.lower() != 'disable':
                     if category['type'] == 'url' and not URL_REGEX.match(msg.content):
                         await dm.send("⚠️ Invalid URL, skipping this field.")
                         continue
-                    async with self.config.user(ctx.author).fields() as fields:
+                    async with self.config.user(member).fields() as fields:
                         fields[identifier] = msg.content
             except TimeoutError:
                 await dm.send(f"⌛ Setup timed out for {category['name']}, skipping.")
@@ -122,9 +126,10 @@ class Profile(commands.Cog):
         await ctx.send(message)
 
     @cprofileset.command(name="setfield")
-    async def set_field(self, ctx, identifier: str, *, value: str):
-        user_data = await self.config.user(ctx.author).all()
-        if not user_data.get("can_edit", True):
+    async def set_field(self, ctx, identifier: str, *, value: str, member: discord.Member = None):
+        member = member or ctx.author
+        user_data = await self.config.user(member).all()
+        if member == ctx.author and not user_data.get("can_edit", True):
             return await ctx.send("❌ You are not allowed to edit your profile.")
         guild_data = await self.config.guild(ctx.guild).all()
         if identifier not in guild_data['categories']:
@@ -132,9 +137,53 @@ class Profile(commands.Cog):
         category = guild_data['categories'][identifier]
         if category['type'] == 'url' and not URL_REGEX.match(value):
             return await ctx.send("❌ That value must be a valid URL.")
-        async with self.config.user(ctx.author).fields() as fields:
+        async with self.config.user(member).fields() as fields:
             fields[identifier] = value
-        await ctx.send(f"✅ Your {category['name']} has been updated.")
+        await ctx.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+
+    @cprofileset.command(name="adminsetup")
+    @checks.is_owner()
+    async def admin_setup(self, ctx):
+        """Walk an admin through creating categories and managing user permissions."""
+        await ctx.send("Starting admin setup. You can add categories and manage user permissions.")
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+
+        while True:
+            await ctx.send("Type `addcategory` to add a new category, `allowedit` to toggle user edit permission, `done` to finish.")
+            try:
+                msg = await self.bot.wait_for('message', check=check, timeout=300)
+            except TimeoutError:
+                await ctx.send("⌛ Admin setup timed out.")
+                break
+
+            content = msg.content.lower()
+            if content == 'done':
+                await ctx.send("✅ Admin setup complete.")
+                break
+            elif content.startswith('addcategory'):
+                parts = msg.content.split()
+                if len(parts) != 4:
+                    await ctx.send("❌ Usage: addcategory <identifier> <display_name> <type:text|url>")
+                    continue
+                _, identifier, display_name, type_ = parts
+                async with self.config.guild(ctx.guild).categories() as cats:
+                    if identifier in cats:
+                        await ctx.send("❌ That identifier already exists.")
+                    else:
+                        cats[identifier] = {"name": display_name, "type": type_}
+                        await ctx.send(f"✅ Added category `{identifier}`.")
+            elif content.startswith('allowedit'):
+                parts = msg.content.split()
+                if len(parts) != 3:
+                    await ctx.send("❌ Usage: allowedit <@user> <True|False>")
+                    continue
+                _, member_mention, allow = parts
+                member = await commands.MemberConverter().convert(ctx, member_mention)
+                allow_bool = allow.lower() == 'true'
+                async with self.config.user(member).all() as user_data:
+                    user_data['can_edit'] = allow_bool
+                await ctx.send(f"✅ {member.display_name} can now {'edit' if allow_bool else 'not edit'} their profile.")
 
     # --------------------------
     # Admin category commands
