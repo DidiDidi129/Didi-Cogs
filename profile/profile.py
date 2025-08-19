@@ -1,6 +1,7 @@
 import discord
 from redbot.core import commands, Config, checks
 import re
+from typing import Literal
 
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
 
@@ -17,19 +18,18 @@ class Profile(commands.Cog):
         default_guild = {
             "categories": {},  # {identifier: {"name": str, "type": str}}
             "allow_user_edit": True,  # global toggle for user edits
-            "role_bypass": []  # list of role IDs that can bypass toggle
+            "role_bypass": []  # roles that bypass global toggle
         }
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
 
     # --------------------------
-    # Profile view command
+    # Profile view
     # --------------------------
     @commands.command()
     async def cprofile(self, ctx, member: discord.Member = None):
         if ctx.guild is None:
             return await ctx.send("❌ This command can only be used in a server.")
-
         member = member or ctx.author
         user_data = await self.config.user(member).all()
         guild_data = await self.config.guild(ctx.guild).all()
@@ -37,7 +37,7 @@ class Profile(commands.Cog):
         color = discord.Color(user_data['color']) if user_data['color'] else member.color
         embed = discord.Embed(
             title=f"{member.display_name}'s Profile",
-            color=color,
+            color=color
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="Username", value=str(member), inline=True)
@@ -49,22 +49,21 @@ class Profile(commands.Cog):
         await ctx.send(embed=embed)
 
     # --------------------------
-    # User settings
+    # Profile settings
     # --------------------------
     @commands.group()
     async def cprofileset(self, ctx):
-        """Profile settings - only setup and adminsetup remain."""
+        """Profile settings. Only 'setup' and 'adminsetup' remain."""
         if ctx.invoked_subcommand is None:
             await ctx.send("❌ Available subcommands: `setup`, `adminsetup`")
 
     async def user_can_edit(self, ctx, member):
-        """Check if the member can bypass global toggle via role or is editing someone else."""
         guild_data = await self.config.guild(ctx.guild).all()
         if member != ctx.author:
             return True
         if guild_data.get("allow_user_edit", True):
             return True
-        # Check role bypass
+        # role bypass
         bypass_roles = guild_data.get("role_bypass", [])
         return any(r.id in bypass_roles for r in ctx.author.roles)
 
@@ -77,9 +76,9 @@ class Profile(commands.Cog):
         try:
             dm = await member.create_dm()
         except discord.Forbidden:
-            return await ctx.send("❌ I cannot send DMs to the user.")
+            return await ctx.send("❌ Cannot DM the user.")
 
-        await dm.send("Let's set up your profile! Type a hex color (e.g., #FF0000) or 'disable' to skip.")
+        await dm.send("Type a hex color (e.g., #FF0000) or 'disable' to skip.")
         def check_color(m):
             return m.author == member and isinstance(m.channel, discord.DMChannel)
 
@@ -112,10 +111,13 @@ class Profile(commands.Cog):
 
         await dm.send("✅ Profile setup complete!")
 
+    # --------------------------
+    # Admin setup in-channel
+    # --------------------------
     @cprofileset.command(name="adminsetup")
     @checks.is_owner()
     async def admin_setup(self, ctx):
-        """Admin setup: categories, user profile edits, remove fields, global settings, view all categories and users with profiles."""
+        """Admin setup: categories, user fields, toggle edits, view all categories and users."""
         channel = ctx.channel
         await channel.send(
             "Starting admin setup. Options: add/remove categories, edit/remove user fields, toggle user edits, view all categories and users."
@@ -132,7 +134,7 @@ class Profile(commands.Cog):
                 "`toggleedit <True|False>`\n"
                 "`edituser <@user> <field_or_color> <value>`\n"
                 "`removeuserfield <@user> <field>`\n"
-                "`view` (show all category IDs and current users with profiles)\n"
+                "`view` (show all category IDs and users with profiles)\n"
                 "`done` to finish setup."
             )
             try:
@@ -146,23 +148,25 @@ class Profile(commands.Cog):
                 continue
             command = parts[0].lower()
 
-            # Finish
             if command == "done":
                 await channel.send("✅ Admin setup complete.")
                 break
 
-            # View categories & users
+            # View categories and users
             elif command == "view":
                 guild_data = await self.config.guild(ctx.guild).all()
                 categories = guild_data["categories"]
                 category_list = "\n".join(f"`{cid}`: {cat['name']} ({cat['type']})" for cid, cat in categories.items()) or "None"
+
+                all_users = await self.config.all_users()
                 users_with_profiles = []
-                async for user_id, data in self.config.all_users():
+                for user_id, data in all_users.items():
                     if data.get("fields") or data.get("color"):
-                        member = ctx.guild.get_member(user_id)
+                        member = ctx.guild.get_member(int(user_id))
                         if member:
                             users_with_profiles.append(f"{member} (`{user_id}`)")
                 user_list = "\n".join(users_with_profiles) or "None"
+
                 await channel.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
 
             # Add category
@@ -189,7 +193,8 @@ class Profile(commands.Cog):
                         await channel.send("❌ That category does not exist.")
                         continue
                     del cats[identifier]
-                async for user_id, _ in self.config.all_users():
+                all_users = await self.config.all_users()
+                for user_id, _ in all_users.items():
                     async with self.config.user_from_id(user_id).fields() as fields:
                         if identifier in fields:
                             del fields[identifier]
@@ -202,9 +207,7 @@ class Profile(commands.Cog):
                     continue
                 allow_bool = parts[1].lower() == "true"
                 await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
-                await channel.send(
-                    f"✅ Users can now {'edit' if allow_bool else 'not edit'} their profiles globally."
-                )
+                await channel.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} profiles globally.")
 
             # Edit user
             elif command == "edituser":
@@ -223,7 +226,7 @@ class Profile(commands.Cog):
                     try:
                         color = discord.Color(int(value.strip("#"), 16))
                         await self.config.user(member).color.set(color.value)
-                        await channel.send(f"✅ {member.display_name}'s color has been updated.")
+                        await channel.send(f"✅ {member.display_name}'s color updated.")
                     except ValueError:
                         await channel.send("❌ Invalid color hex value.")
                 else:
@@ -237,7 +240,7 @@ class Profile(commands.Cog):
                         continue
                     async with self.config.user(member).fields() as fields:
                         fields[field] = value
-                    await channel.send(f"✅ {member.display_name}'s {category['name']} has been updated.")
+                    await channel.send(f"✅ {member.display_name}'s {category['name']} updated.")
 
             # Remove user field
             elif command == "removeuserfield":
