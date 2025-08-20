@@ -27,7 +27,7 @@ class Profile(commands.Cog):
     # --------------------------
     # Profile view
     # --------------------------
-    @commands.command()
+    @commands.command(name="cprofile")
     async def profile(self, ctx, member: discord.Member = None):
         if ctx.guild is None:
             return await ctx.send("❌ This command can only be used in a server.")
@@ -52,7 +52,7 @@ class Profile(commands.Cog):
     # --------------------------
     # Profile settings
     # --------------------------
-    @commands.group()
+    @commands.group(name="cprofileset")
     async def profileset(self, ctx):
         """Profile settings. Only 'setup' and 'adminsetup' remain."""
         if ctx.invoked_subcommand is None:
