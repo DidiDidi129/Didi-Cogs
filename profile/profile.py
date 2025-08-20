@@ -1,6 +1,7 @@
 import discord
 from redbot.core import commands, Config, checks
 import re
+import shlex
 from typing import Literal
 
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
@@ -129,13 +130,13 @@ class Profile(commands.Cog):
         while True:
             await channel.send(
                 "Commands:\n"
-                "`addcategory <id> <name> <type:text|url>`\n"
+                "`addcategory <id> \"<display name>\" <type:text|url>`\n"
                 "`removecategory <id>`\n"
                 "`toggleedit <True|False>`\n"
                 "`edituser <@user> <field_or_color> <value>`\n"
                 "`removeuserfield <@user> <field>`\n"
-                "`view` (show all category IDs and users with profiles)\n"
-                "`done` to finish setup."
+                "`view`\n"
+                "`done`"
             )
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=300)
@@ -143,7 +144,12 @@ class Profile(commands.Cog):
                 await channel.send("⌛ Admin setup timed out.")
                 break
 
-            parts = msg.content.split(maxsplit=3)
+            try:
+                parts = shlex.split(msg.content)
+            except ValueError as e:
+                await channel.send(f"❌ Parsing error: {e}")
+                continue
+
             if not parts:
                 continue
             command = parts[0].lower()
@@ -152,7 +158,6 @@ class Profile(commands.Cog):
                 await channel.send("✅ Admin setup complete.")
                 break
 
-            # View categories and users
             elif command == "view":
                 guild_data = await self.config.guild(ctx.guild).all()
                 categories = guild_data["categories"]
@@ -169,10 +174,9 @@ class Profile(commands.Cog):
 
                 await channel.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
 
-            # Add category
             elif command == "addcategory":
                 if len(parts) != 4:
-                    await channel.send("❌ Usage: addcategory <id> <display_name> <type:text|url>")
+                    await channel.send("❌ Usage: addcategory <id> \"<display_name>\" <type:text|url>")
                     continue
                 _, identifier, display_name, type_ = parts
                 async with self.config.guild(ctx.guild).categories() as cats:
@@ -182,7 +186,6 @@ class Profile(commands.Cog):
                         cats[identifier] = {"name": display_name, "type": type_}
                         await channel.send(f"✅ Added category `{identifier}`.")
 
-            # Remove category
             elif command == "removecategory":
                 if len(parts) != 2:
                     await channel.send("❌ Usage: removecategory <id>")
@@ -200,7 +203,6 @@ class Profile(commands.Cog):
                             del fields[identifier]
                 await channel.send(f"✅ Category `{identifier}` removed from guild and all users.")
 
-            # Toggle user edit
             elif command == "toggleedit":
                 if len(parts) != 2:
                     await channel.send("❌ Usage: toggleedit <True|False>")
@@ -209,7 +211,6 @@ class Profile(commands.Cog):
                 await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
                 await channel.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} profiles globally.")
 
-            # Edit user
             elif command == "edituser":
                 if len(parts) != 4:
                     await channel.send("❌ Usage: edituser <@user> <field_or_color> <value>")
@@ -242,7 +243,6 @@ class Profile(commands.Cog):
                         fields[field] = value
                     await channel.send(f"✅ {member.display_name}'s {category['name']} updated.")
 
-            # Remove user field
             elif command == "removeuserfield":
                 if len(parts) != 3:
                     await channel.send("❌ Usage: removeuserfield <@user> <field>")
