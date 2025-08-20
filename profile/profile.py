@@ -145,7 +145,9 @@ class Profile(commands.Cog):
                 break
 
             try:
-                parts = shlex.split(msg.content)
+                # Normalize curly quotes to straight quotes before parsing
+                normalized = msg.content.replace("“", "\"").replace("”", "\"")
+                parts = shlex.split(normalized)
             except ValueError as e:
                 await channel.send(f"❌ Parsing error: {e}")
                 continue
