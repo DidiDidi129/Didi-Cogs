@@ -1,7 +1,6 @@
 import discord
 from redbot.core import commands, Config
 import aiohttp
-import asyncio
 
 class Gemini(commands.Cog):
     """Gemini API integration for Red-DiscordBot"""
@@ -9,21 +8,24 @@ class Gemini(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        default_guild = {"api_key": None}
+        default_guild = {"api_key": None, "model": "gemini-pro"}
         default_channel = {"history": []}
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, history: list):
+    async def call_gemini(self, api_key: str, model: str, history: list):
         """
         Calls Gemini API with the current chat history.
         """
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         headers = {"Content-Type": "application/json"}
         params = {"key": api_key}
 
         # Format messages for Gemini
-        contents = [{"role": "user" if i % 2 == 0 else "model", "parts": [{"text": msg}]} for i, msg in enumerate(history)]
+        contents = []
+        for i, msg in enumerate(history):
+            role = "user" if i % 2 == 0 else "model"
+            contents.append({"role": role, "parts": [{"text": msg}]})
 
         payload = {"contents": contents}
 
@@ -50,6 +52,12 @@ class Gemini(commands.Cog):
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
 
+    @gemini.command()
+    async def model(self, ctx, model_name: str):
+        """Set the Gemini model (default: gemini-pro)"""
+        await self.config.guild(ctx.guild).model.set(model_name)
+        await ctx.reply(f"✅ Gemini model set to `{model_name}`")
+
     @gemini.command(name="clear")
     async def clear(self, ctx):
         """Clear the chat history for this channel"""
@@ -60,6 +68,7 @@ class Gemini(commands.Cog):
     async def chat(self, ctx, *, message: str):
         """Send a message to Gemini"""
         api_key = await self.config.guild(ctx.guild).api_key()
+        model = await self.config.guild(ctx.guild).model()
         if not api_key:
             await ctx.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
@@ -68,9 +77,39 @@ class Gemini(commands.Cog):
         history.append(message)  # Add user message
 
         # Call Gemini
-        reply_text = await self.call_gemini(api_key, history)
+        reply_text = await self.call_gemini(api_key, model, history)
 
         history.append(reply_text)  # Save Gemini's response
         await self.config.channel(ctx.channel).history.set(history)
 
         await ctx.reply(reply_text)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Listen for bot mentions to chat naturally"""
+        if message.author.bot:
+            return
+        if not message.guild:
+            return
+
+        # If bot is mentioned in the message
+        if self.bot.user in message.mentions:
+            api_key = await self.config.guild(message.guild).api_key()
+            model = await self.config.guild(message.guild).model()
+            if not api_key:
+                await message.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
+                return
+
+            # Strip mention from message text
+            content = message.clean_content.replace(f"@{self.bot.user.name}", "").strip()
+            if not content:
+                return
+
+            history = await self.config.channel(message.channel).history()
+            history.append(content)
+
+            reply_text = await self.call_gemini(api_key, model, history)
+            history.append(reply_text)
+            await self.config.channel(message.channel).history.set(history)
+
+            await message.reply(reply_text)
