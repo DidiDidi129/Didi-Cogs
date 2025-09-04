@@ -11,7 +11,7 @@ class Gemini(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         default_guild = {
             "api_key": None,
-            "model": "gemini-pro",
+            "model": "gemini-2.0-flash",  # default model updated
             "respond_to_mentions": True
         }
         default_channel = {
@@ -57,7 +57,6 @@ class Gemini(commands.Cog):
     async def gemini(self, ctx):
         """Talk with Google Gemini AI. Shows this help when used without a subcommand."""
         if ctx.invoked_subcommand is None:
-            # Automatically show subcommand help
             await ctx.send_help(ctx.command)
 
     @gemini.command(help="Set the Gemini API key for this server")
@@ -65,7 +64,7 @@ class Gemini(commands.Cog):
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
 
-    @gemini.command(help="Set the Gemini model (default: gemini-pro)")
+    @gemini.command(help="Set the Gemini model (default: gemini-2.0-flash)")
     async def model(self, ctx, model_name: str):
         await self.config.guild(ctx.guild).model.set(model_name)
         await ctx.reply(f"✅ Gemini model set to `{model_name}`")
