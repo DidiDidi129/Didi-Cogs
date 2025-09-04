@@ -1,5 +1,5 @@
 import discord
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config
 import aiohttp
 
 class Gemini(commands.Cog):
@@ -27,18 +27,18 @@ class Gemini(commands.Cog):
         params = {"key": api_key}
 
         contents = []
-
         if system_prompt:
             contents.append({"role": "system", "parts": [{"text": system_prompt}]})
 
-        for i, entry in enumerate(history):
-            role = entry["role"]
-            contents.append({"role": role, "parts": [{"text": entry["content"]}]})
+        for entry in history:
+            contents.append({"role": entry["role"], "parts": [{"text": entry["content"]}]})
 
         payload = {"contents": contents}
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, params=params, json=payload) as resp:
+                if resp.status == 503:
+                    return "Model overloaded, please try again soon"
                 if resp.status != 200:
                     text = await resp.text()
                     return f"❌ Error {resp.status}: {text}"
@@ -56,6 +56,10 @@ class Gemini(commands.Cog):
     @commands.group()
     async def gemini(self, ctx):
         """Talk with Google Gemini AI"""
+        # Prevent commands inside always-respond channels
+        if await self.config.channel(ctx.channel).always_respond():
+            await ctx.reply("⚠️ Commands are disabled in always-respond channels.")
+            raise commands.CheckFailure()
         pass
 
     @gemini.command()
@@ -106,15 +110,6 @@ class Gemini(commands.Cog):
         """Send a message to Gemini"""
         await self._handle_message(ctx.channel, ctx.author, message, reply_to=ctx)
 
-    @gemini.command(name="clearall")
-    @checks.is_owner()
-    async def clear_all(self, ctx):
-        """Owner only: clear all chat histories everywhere"""
-        async with self.config.all_channels() as chans:
-            for ch in chans.values():
-                ch["history"] = []
-        await ctx.reply("🗑️ All chat histories cleared across all channels.")
-
     # ===============================
     # Listener
     # ===============================
@@ -124,8 +119,16 @@ class Gemini(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        # Check if bot was mentioned OR channel is always-respond
-        if self.bot.user in message.mentions or await self.config.channel(message.channel).always_respond():
+        # Always respond channel
+        if await self.config.channel(message.channel).always_respond():
+            # Ignore commands
+            if message.content.startswith((await self.bot.get_valid_prefixes(message.guild))[0]):
+                return
+            await self._handle_message(message.channel, message.author, message.content, reply_to=message)
+            return
+
+        # Bot mentioned
+        if self.bot.user in message.mentions:
             content = message.clean_content.replace(f"@{self.bot.user.name}", "").strip()
             if not content:
                 return
@@ -148,7 +151,7 @@ class Gemini(commands.Cog):
         # Load history
         history = await self.config.channel(channel).history() if use_history else []
 
-        # Add user message
+        # Add user message with username
         history.append({"role": "user", "content": f"{author.display_name}: {content}"})
 
         # Call Gemini
