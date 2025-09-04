@@ -4,6 +4,6 @@
     "short": "Gemini API",
     "description": "Talk with Google Gemini AI inside Discord.",
     "install_msg": "Gemini installed. After loading, use `?gemini apiset <API_KEY>` to set your API key. API is set per server",
-    "requirements": ["aiohttp, daterime"],
+    "requirements": ["aiohttp", "datetime"],
     "tags": ["AI", "Gemini", "Google", "Chatbot"]
 }
