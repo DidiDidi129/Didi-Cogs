@@ -16,6 +16,7 @@ You may be asked to respond with "I agree" after adding the repo.
 - Profiles
     - Very configurable Cog which gives users "profiles" that Admins can edit. Alternatively, you can allow users to set their own profile.
     - Commands: `[p]profile`, `[p]profileset`
+    - To obtain an API key, go to https://aistudio.google.com. Google has a free tier. You can extent the limits by quite a bit if you add a billing account, but if you go over the limits it will charge your account. 
 Running a command will show all available sub-commands using the help menu.
 ## Support
 If you need help though you can ping me (@didididi129), in the #support_othercogs channel of the [Red - Cog Support](https://discord.gg/red-cog-support-240154543684321280) server.
