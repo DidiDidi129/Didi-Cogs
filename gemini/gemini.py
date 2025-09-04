@@ -38,7 +38,7 @@ class Gemini(commands.Cog):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, params=params, json=payload) as resp:
                 if resp.status == 503:
-                    return "Model overloaded, please try again soon"
+                    return "⚠️ Model overloaded, please try again soon"
                 if resp.status != 200:
                     text = await resp.text()
                     return f"❌ Error {resp.status}: {text}"
@@ -115,10 +115,11 @@ class Gemini(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        prefixes = await self.bot.get_valid_prefixes(message.guild)
+
         # Always respond channel
         if await self.config.channel(message.channel).always_respond():
             # Don’t process messages that look like commands
-            prefixes = await self.bot.get_valid_prefixes(message.guild)
             if any(message.content.startswith(prefix) for prefix in prefixes):
                 return
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
@@ -127,12 +128,18 @@ class Gemini(commands.Cog):
         # Bot mentioned
         if self.bot.user in message.mentions:
             content = message.clean_content.replace(f"@{self.bot.user.name}", "").strip()
+
+            # If replying to another user’s message → ephemeral query
+            if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
+                await self._handle_reply_query(message.channel, message.author, ref, content, reply_to=message)
+                return
+
             if not content:
                 return
             await self._handle_message(message.channel, message.author, content, reply_to=message)
 
     # ===============================
-    # Core message handler
+    # Core handlers
     # ===============================
 
     async def _handle_message(self, channel, author, content, reply_to):
@@ -158,5 +165,35 @@ class Gemini(commands.Cog):
         history.append({"role": "model", "content": reply_text})
         if use_history:
             await self.config.channel(channel).history.set(history)
+
+        await reply_to.reply(reply_text)
+
+    async def _handle_reply_query(self, channel, author, referenced_message, query, reply_to):
+        """
+        Handles reply-based ephemeral queries (does not affect channel history).
+        """
+        api_key = await self.config.guild(channel.guild).api_key()
+        model = await self.config.guild(channel.guild).model()
+        system_prompt = await self.config.channel(channel).system_prompt()
+
+        if not api_key:
+            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
+            return
+
+        # Temporary history (not saved)
+        history = []
+        if system_prompt:
+            history.append({"role": "system", "content": system_prompt})
+
+        history.append({
+            "role": "user",
+            "content": f"{referenced_message.author.display_name} said: {referenced_message.content}"
+        })
+        history.append({
+            "role": "user",
+            "content": f"{author.display_name} asks: {query}"
+        })
+
+        reply_text = await self.call_gemini(api_key, model, history, system_prompt)
 
         await reply_to.reply(reply_text)
