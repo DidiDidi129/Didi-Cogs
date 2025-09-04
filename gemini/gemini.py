@@ -56,6 +56,10 @@ class Gemini(commands.Cog):
     @commands.group()
     async def gemini(self, ctx):
         """Talk with Google Gemini AI"""
+        # Prevent commands inside always-respond channels
+        if await self.config.channel(ctx.channel).always_respond():
+            await ctx.reply("⚠️ Commands are disabled in always-respond channels.")
+            raise commands.CheckFailure()
         pass
 
     @gemini.command()
@@ -117,9 +121,8 @@ class Gemini(commands.Cog):
 
         # Always respond channel
         if await self.config.channel(message.channel).always_respond():
-            # Don’t process messages that look like commands
-            prefixes = await self.bot.get_valid_prefixes(message.guild)
-            if any(message.content.startswith(prefix) for prefix in prefixes):
+            # Ignore commands
+            if message.content.startswith((await self.bot.get_valid_prefixes(message.guild))[0]):
                 return
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
