@@ -12,7 +12,7 @@ class Gemini(commands.Cog):
         default_guild = {
             "api_key": None,
             "model": "gemini-pro",
-            "respond_to_mentions": True  # New config
+            "respond_to_mentions": True
         }
         default_channel = {
             "history": [],
@@ -50,22 +50,27 @@ class Gemini(commands.Cog):
     # Commands
     # ===============================
 
-    @commands.group()
+    @commands.group(
+        invoke_without_command=True,
+        help="Main Gemini command group. Use subcommands to configure or chat with Gemini."
+    )
     async def gemini(self, ctx):
-        """Talk with Google Gemini AI"""
-        pass
+        """Talk with Google Gemini AI. Shows this help when used without a subcommand."""
+        if ctx.invoked_subcommand is None:
+            # Automatically show subcommand help
+            await ctx.send_help(ctx.command)
 
-    @gemini.command()
+    @gemini.command(help="Set the Gemini API key for this server")
     async def apiset(self, ctx, api_key: str):
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
 
-    @gemini.command()
+    @gemini.command(help="Set the Gemini model (default: gemini-pro)")
     async def model(self, ctx, model_name: str):
         await self.config.guild(ctx.guild).model.set(model_name)
         await ctx.reply(f"✅ Gemini model set to `{model_name}`")
 
-    @gemini.command()
+    @gemini.command(help="Set or clear the system prompt for this channel")
     async def system(self, ctx, *, prompt: str = None):
         await self.config.channel(ctx.channel).system_prompt.set(prompt)
         if prompt:
@@ -73,26 +78,26 @@ class Gemini(commands.Cog):
         else:
             await ctx.reply("🧹 System prompt cleared for this channel.")
 
-    @gemini.command()
+    @gemini.command(help="Toggle chat history for this channel")
     async def togglehistory(self, ctx):
         current = await self.config.channel(ctx.channel).use_history()
         new_state = not current
         await self.config.channel(ctx.channel).use_history.set(new_state)
         await ctx.reply(f"📜 Chat history is now **{'enabled' if new_state else 'disabled'}** for this channel.")
 
-    @gemini.command()
+    @gemini.command(help="Toggle auto-response for this channel (no ping needed)")
     async def alwaysrespond(self, ctx):
         current = await self.config.channel(ctx.channel).always_respond()
         new_state = not current
         await self.config.channel(ctx.channel).always_respond.set(new_state)
         await ctx.reply(f"💬 Always-respond is now **{'enabled' if new_state else 'disabled'}** for this channel.")
 
-    @gemini.command(name="clear")
+    @gemini.command(name="clear", help="Clear the chat history for this channel")
     async def clear(self, ctx):
         await self.config.channel(ctx.channel).history.set([])
         await ctx.reply("🧹 Chat history cleared for this channel.")
 
-    @gemini.command(name="autodelete")
+    @gemini.command(name="autodelete", help="Set the auto-delete timer for chat history in this channel in days (admin only)")
     @commands.has_permissions(administrator=True)
     async def autodelete(self, ctx, days: int = None):
         if days is not None and days <= 0:
@@ -102,18 +107,14 @@ class Gemini(commands.Cog):
         msg = f"✅ Auto-delete set to {days} day(s)." if days else "✅ Auto-delete disabled."
         await ctx.reply(msg)
 
-    @gemini.command(name="respond")
+    @gemini.command(name="respond", help="Enable or disable responding to mentions for this server (admin only)")
     @commands.has_permissions(administrator=True)
     async def respond(self, ctx, toggle: bool):
-        """
-        Enable or disable responding to mentions for this server.
-        Use True to allow, False to disable.
-        """
         await self.config.guild(ctx.guild).respond_to_mentions.set(toggle)
         msg = "✅ Bot will respond to mentions." if toggle else "❌ Bot will ignore mentions."
         await ctx.reply(msg)
 
-    @gemini.command(name="chat")
+    @gemini.command(name="chat", help="Send a message to Gemini")
     async def chat(self, ctx, *, message: str):
         await self._handle_message(ctx.channel, ctx.author, message, reply_to=ctx)
 
@@ -139,7 +140,7 @@ class Gemini(commands.Cog):
         if self.bot.user.mention in message.content:
             respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
             if not respond_enabled:
-                return  # Mentions disabled, skip
+                return
             content = message.clean_content.replace(self.bot.user.mention, "").strip()
 
             if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
@@ -164,29 +165,23 @@ class Gemini(commands.Cog):
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Load history
         history = await self.config.channel(channel).history() if use_history else []
 
-        # Remove old messages if auto_delete_days is set
         if auto_delete_days and history:
             cutoff = datetime.utcnow() - timedelta(days=auto_delete_days)
             history = [h for h in history if h.get("timestamp") is None or datetime.fromisoformat(h["timestamp"]) > cutoff]
 
-        # Add current message
         history.append({
             "role": "user",
             "content": f"{author.display_name}: {content}",
             "timestamp": datetime.utcnow().isoformat()
         })
 
-        # Prepend system prompt to first message
         if system_prompt and history:
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
-        # Call Gemini
         reply_text = await self.call_gemini(api_key, model, history)
 
-        # Save/update history
         history.append({
             "role": "user",
             "content": reply_text,
@@ -206,7 +201,6 @@ class Gemini(commands.Cog):
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Build ephemeral history
         first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
