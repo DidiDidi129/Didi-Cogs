@@ -19,14 +19,20 @@ class Gemini(commands.Cog):
         self.config.register_channel(**default_channel)
 
     async def call_gemini(self, api_key: str, model: str, history: list, system_prompt: str = None):
-        """Call Gemini API with history + optional system prompt."""
+        """Call Gemini API with history + optional system prompt (system prompt prepended to first message)."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         headers = {"Content-Type": "application/json"}
         params = {"key": api_key}
 
         contents = []
-        if system_prompt:
-            contents.append({"role": "system", "parts": [{"text": system_prompt}]})
+
+        # Prepend system prompt to first user message if set
+        if system_prompt and history:
+            first = history[0]["content"]
+            contents.append({"role": "user", "parts": [{"text": f"{system_prompt}\n{first}"}]})
+            history = history[1:]  # skip first since it's already added
+        elif system_prompt and not history:
+            contents.append({"role": "user", "parts": [{"text": system_prompt}]})
 
         for entry in history:
             contents.append({"role": entry["role"], "parts": [{"text": entry["content"]}]})
@@ -160,7 +166,7 @@ class Gemini(commands.Cog):
         reply_text = await self.call_gemini(api_key, model, history, system_prompt)
 
         # Save/update history
-        history.append({"role": "model", "content": reply_text})
+        history.append({"role": "user", "content": reply_text})
         if use_history:
             await self.config.channel(channel).history.set(history)
 
@@ -180,18 +186,15 @@ class Gemini(commands.Cog):
 
         # Temporary history (not saved)
         history = []
+
+        # Prepend system prompt to first message if exists
+        first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
         if system_prompt:
-            history.append({"role": "system", "content": system_prompt})
+            first_message = f"{system_prompt}\n{first_message}"
 
-        history.append({
-            "role": "user",
-            "content": f"{referenced_message.author.display_name} said: {referenced_message.content}"
-        })
-        history.append({
-            "role": "user",
-            "content": f"{author.display_name} asks: {query}"
-        })
+        history.append({"role": "user", "content": first_message})
+        history.append({"role": "user", "content": f"{author.display_name} asks: {query}"})
 
-        reply_text = await self.call_gemini(api_key, model, history, system_prompt)
+        reply_text = await self.call_gemini(api_key, model, history)
 
         await reply_to.reply(reply_text)
