@@ -1,9 +1,9 @@
 {
-    "author": ["YourName"],
+    "author": ["Didi"],
     "name": "Gemini",
-    "short": "Gemini API integration",
+    "short": "Gemini API",
     "description": "Talk with Google Gemini AI inside Discord.",
-    "install_msg": "✅ Gemini Cog installed. Use `?gemini apiset <API_KEY>` to set your API key.",
-    "requirements": ["aiohttp"],
+    "install_msg": "Gemini installed. After loading, use `?gemini apiset <API_KEY>` to set your API key. API is set per server",
+    "requirements": ["aiohttp, daterime"],
     "tags": ["AI", "Gemini", "Google", "Chatbot"]
 }
