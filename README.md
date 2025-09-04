@@ -18,4 +18,4 @@ You may be asked to respond with "I agree" after adding the repo.
     - Commands: `[p]profile`, `[p]profileset`
 Running a command will show all available sub-commands using the help menu.
 ## Support
-If you need help though you can ping me (@didididi129), in the #other-cogs channel of the [Red - Cog Support](https://discord.gg/red-cog-support-240154543684321280) server.
+If you need help though you can ping me (@didididi129), in the #support_othercogs channel of the [Red - Cog Support](https://discord.gg/red-cog-support-240154543684321280) server.
