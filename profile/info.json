@@ -7,6 +7,5 @@
   "tags": ["profile", "utility", "social"],
   "requirements": [],
   "hidden": false,
-  "disabled": false,
-  "min_bot_version": "3.5.0"
+  "disabled": false
 }
