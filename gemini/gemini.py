@@ -19,9 +19,7 @@ class Gemini(commands.Cog):
         self.config.register_channel(**default_channel)
 
     async def call_gemini(self, api_key: str, model: str, history: list, system_prompt: str = None):
-        """
-        Calls Gemini API with the current chat history + system prompt if set.
-        """
+        """Call Gemini API with history + optional system prompt."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         headers = {"Content-Type": "application/json"}
         params = {"key": api_key}
@@ -126,8 +124,8 @@ class Gemini(commands.Cog):
             return
 
         # Bot mentioned
-        if self.bot.user in message.mentions:
-            content = message.clean_content.replace(f"@{self.bot.user.name}", "").strip()
+        if self.bot.user.mention in message.content:
+            content = message.clean_content.replace(self.bot.user.mention, "").strip()
 
             # If replying to another user’s message → ephemeral query
             if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
