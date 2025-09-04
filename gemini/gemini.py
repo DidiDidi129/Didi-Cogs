@@ -18,24 +18,15 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, model: str, history: list, system_prompt: str = None):
-        """Call Gemini API with history + optional system prompt (system prompt prepended to first message)."""
+    async def call_gemini(self, api_key: str, model: str, history: list):
+        """
+        Call Gemini API with history. All messages are user role; system prompt already prepended if needed.
+        """
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         headers = {"Content-Type": "application/json"}
         params = {"key": api_key}
 
-        contents = []
-
-        # Prepend system prompt to first user message if set
-        if system_prompt and history:
-            first = history[0]["content"]
-            contents.append({"role": "user", "parts": [{"text": f"{system_prompt}\n{first}"}]})
-            history = history[1:]  # skip first since it's already added
-        elif system_prompt and not history:
-            contents.append({"role": "user", "parts": [{"text": system_prompt}]})
-
-        for entry in history:
-            contents.append({"role": entry["role"], "parts": [{"text": entry["content"]}]})
+        contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
 
         payload = {"contents": contents}
 
@@ -123,7 +114,6 @@ class Gemini(commands.Cog):
 
         # Always respond channel
         if await self.config.channel(message.channel).always_respond():
-            # Don’t process messages that look like commands
             if any(message.content.startswith(prefix) for prefix in prefixes):
                 return
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
@@ -133,14 +123,13 @@ class Gemini(commands.Cog):
         if self.bot.user.mention in message.content:
             content = message.clean_content.replace(self.bot.user.mention, "").strip()
 
-            # If replying to another user’s message → ephemeral query
+            # If replying to another user → ephemeral query
             if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
                 await self._handle_reply_query(message.channel, message.author, ref, content, reply_to=message)
                 return
 
-            if not content:
-                return
-            await self._handle_message(message.channel, message.author, content, reply_to=message)
+            if content:
+                await self._handle_message(message.channel, message.author, content, reply_to=message)
 
     # ===============================
     # Core handlers
@@ -159,14 +148,18 @@ class Gemini(commands.Cog):
         # Load history
         history = await self.config.channel(channel).history() if use_history else []
 
-        # Add user message with username
+        # Add user message (with username for context)
         history.append({"role": "user", "content": f"{author.display_name}: {content}"})
 
+        # Prepend system prompt to first message
+        if system_prompt and history:
+            history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
+
         # Call Gemini
-        reply_text = await self.call_gemini(api_key, model, history, system_prompt)
+        reply_text = await self.call_gemini(api_key, model, history)
 
         # Save/update history
-        history.append({"role": "user", "content": reply_text})
+        history.append({"role": "user", "content": reply_text})  # store reply as user text, no "Didi:"
         if use_history:
             await self.config.channel(channel).history.set(history)
 
@@ -174,7 +167,7 @@ class Gemini(commands.Cog):
 
     async def _handle_reply_query(self, channel, author, referenced_message, query, reply_to):
         """
-        Handles reply-based ephemeral queries (does not affect channel history).
+        Handles reply-based ephemeral queries (does not affect history)
         """
         api_key = await self.config.guild(channel.guild).api_key()
         model = await self.config.guild(channel.guild).model()
@@ -184,17 +177,16 @@ class Gemini(commands.Cog):
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Temporary history (not saved)
-        history = []
-
-        # Prepend system prompt to first message if exists
+        # Build temporary history for this ephemeral query
         first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
 
-        history.append({"role": "user", "content": first_message})
-        history.append({"role": "user", "content": f"{author.display_name} asks: {query}"})
+        temp_history = [
+            {"role": "user", "content": first_message},
+            {"role": "user", "content": f"{author.display_name} asks: {query}"}
+        ]
 
-        reply_text = await self.call_gemini(api_key, model, history)
+        reply_text = await self.call_gemini(api_key, model, temp_history)
 
         await reply_to.reply(reply_text)
