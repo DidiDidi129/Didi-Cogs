@@ -3,7 +3,8 @@
     "name": "Gemini",
     "short": "Gemini API",
     "description": "Talk with Google Gemini AI inside Discord.",
-    "install_msg": "**This cog interacts with outside API's** After loading, use `?gemini apiset <API_KEY>` to set your API key. API is set per server",
+    "install_msg": "**This cog interacts with outside API's** After loading, use `[p]gemini apiset <API_KEY>` to set your API key. API is set per server**",
     "requirements": ["aiohttp", "datetime"],
     "tags": ["AI", "Gemini", "Google", "Chatbot"]
 }
+
