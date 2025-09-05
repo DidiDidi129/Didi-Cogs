@@ -1,7 +1,6 @@
 import discord
 from redbot.core import commands, Config, checks
 import re
-import shlex
 from typing import Literal
 
 URL_REGEX = re.compile(r"^(https?://[\w.-]+(?:\.[\w\.-]+)+[/\w\-._~:/?#[\]@!$&'()*+,;=.]+)?$")
@@ -29,6 +28,7 @@ class Profile(commands.Cog):
     # --------------------------
     @commands.command(name="profile")
     async def profile(self, ctx, member: discord.Member = None):
+        """View your own or another member's profile."""
         if ctx.guild is None:
             return await ctx.send("❌ This command can only be used in a server.")
         member = member or ctx.author
@@ -54,11 +54,12 @@ class Profile(commands.Cog):
     # --------------------------
     @commands.group(name="profileset")
     async def profileset(self, ctx):
-        """Profile settings. Only 'setup' and 'adminsetup' remain."""
+        """Profile settings group (contains setup and admin tools)."""
         if ctx.invoked_subcommand is None:
-            await ctx.send("❌ Available subcommands: `setup`, `adminsetup`")
+            await ctx.send_help(ctx.command)
 
     async def user_can_edit(self, ctx, member):
+        """Check whether the invoking user is allowed to edit a profile."""
         guild_data = await self.config.guild(ctx.guild).all()
         if member != ctx.author:
             return True
@@ -70,6 +71,7 @@ class Profile(commands.Cog):
 
     @profileset.command(name="setup")
     async def setup_profile(self, ctx, member: discord.Member = None):
+        """Interactive DM-based setup for a user profile."""
         member = member or ctx.author
         if not await self.user_can_edit(ctx, member):
             return await ctx.send("❌ You are not allowed to edit your profile.")
@@ -113,153 +115,95 @@ class Profile(commands.Cog):
         await dm.send("✅ Profile setup complete!")
 
     # --------------------------
-    # Admin setup in-channel
+    # Admin tools (as commands)
     # --------------------------
-    @profileset.command(name="adminsetup")
+    @profileset.group(name="admin")
     @checks.is_owner()
-    async def admin_setup(self, ctx):
-        """Admin setup: categories, user fields, toggle edits, view all categories and users."""
-        channel = ctx.channel
-        await channel.send(
-            "Starting admin setup. Options: add/remove categories, edit/remove user fields, toggle user edits, view all categories and users."
-        )
+    async def profileset_admin(self, ctx):
+        """Admin tools for managing categories and user profiles."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-        def check(m):
-            return m.author == ctx.author and m.channel == channel
+    @profileset_admin.command(name="addcategory")
+    async def admin_add_category(self, ctx, identifier: str, display_name: str, type_: Literal["text", "url"]):
+        """Add a new profile category."""
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier in cats:
+                await ctx.send("❌ That identifier already exists.")
+            else:
+                cats[identifier] = {"name": display_name, "type": type_}
+                await ctx.send(f"✅ Added category `{identifier}`.")
 
-        while True:
-            await channel.send(
-                "Commands:\n"
-                "`addcategory <id> \"<display name>\" <type:text|url>`\n"
-                "`removecategory <id>`\n"
-                "`toggleedit <True|False>`\n"
-                "`edituser <@user> <field_or_color> <value>`\n"
-                "`removeuserfield <@user> <field>`\n"
-                "`view`\n"
-                "`done`"
-            )
+    @profileset_admin.command(name="removecategory")
+    async def admin_remove_category(self, ctx, identifier: str):
+        """Remove a profile category from the guild and all users."""
+        async with self.config.guild(ctx.guild).categories() as cats:
+            if identifier not in cats:
+                return await ctx.send("❌ That category does not exist.")
+            del cats[identifier]
+
+        all_users = await self.config.all_users()
+        for user_id, _ in all_users.items():
+            async with self.config.user_from_id(user_id).fields() as fields:
+                if identifier in fields:
+                    del fields[identifier]
+        await ctx.send(f"✅ Category `{identifier}` removed.")
+
+    @profileset_admin.command(name="toggleedit")
+    async def admin_toggle_edit(self, ctx, allow: bool):
+        """Toggle whether users can edit their profiles globally."""
+        await self.config.guild(ctx.guild).allow_user_edit.set(allow)
+        await ctx.send(f"✅ Users can now {'edit' if allow else 'not edit'} their profiles.")
+
+    @profileset_admin.command(name="edituser")
+    async def admin_edit_user(self, ctx, member: discord.Member, field: str, value: str):
+        """Edit a user's profile field or color."""
+        if field.lower() == "color":
             try:
-                msg = await self.bot.wait_for('message', check=check, timeout=300)
-            except TimeoutError:
-                await channel.send("⌛ Admin setup timed out.")
-                break
+                color = discord.Color(int(value.strip("#"), 16))
+                await self.config.user(member).color.set(color.value)
+                return await ctx.send(f"✅ {member.display_name}'s color updated.")
+            except ValueError:
+                return await ctx.send("❌ Invalid color hex value.")
 
-            try:
-                # Normalize curly quotes to straight quotes before parsing
-                normalized = msg.content.replace("“", "\"").replace("”", "\"")
-                parts = shlex.split(normalized)
-            except ValueError as e:
-                await channel.send(f"❌ Parsing error: {e}")
-                continue
+        guild_data = await self.config.guild(ctx.guild).all()
+        if field not in guild_data["categories"]:
+            return await ctx.send("❌ That category does not exist.")
 
-            if not parts:
-                continue
-            command = parts[0].lower()
+        category = guild_data["categories"][field]
+        if category["type"] == "url" and not URL_REGEX.match(value):
+            return await ctx.send("❌ That value must be a valid URL.")
 
-            if command == "done":
-                await channel.send("✅ Admin setup complete.")
-                break
+        async with self.config.user(member).fields() as fields:
+            fields[field] = value
+        await ctx.send(f"✅ {member.display_name}'s {category['name']} updated.")
 
-            elif command == "view":
-                guild_data = await self.config.guild(ctx.guild).all()
-                categories = guild_data["categories"]
-                category_list = "\n".join(f"`{cid}`: {cat['name']} ({cat['type']})" for cid, cat in categories.items()) or "None"
+    @profileset_admin.command(name="removeuserfield")
+    async def admin_remove_user_field(self, ctx, member: discord.Member, field: str):
+        """Remove a specific field from a user's profile."""
+        async with self.config.user(member).fields() as fields:
+            if field in fields:
+                del fields[field]
+                await ctx.send(f"✅ Removed `{field}` from {member.display_name}'s profile.")
+            else:
+                await ctx.send(f"❌ {member.display_name} does not have a `{field}` field.")
 
-                all_users = await self.config.all_users()
-                users_with_profiles = []
-                for user_id_str, data in all_users.items():
-                    member = ctx.guild.get_member(int(user_id_str))
-                    if member is not None:
-                        if data.get("color") or data.get("fields"):
-                            users_with_profiles.append(f"{member} (`{user_id_str}`)")
-                user_list = "\n".join(users_with_profiles) or "None"
+    @profileset_admin.command(name="view")
+    async def admin_view(self, ctx):
+        """View all categories and users with profiles."""
+        guild_data = await self.config.guild(ctx.guild).all()
+        categories = guild_data["categories"]
+        category_list = "\n".join(
+            f"`{cid}`: {cat['name']} ({cat['type']})"
+            for cid, cat in categories.items()
+        ) or "None"
 
-                await channel.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
+        all_users = await self.config.all_users()
+        users_with_profiles = []
+        for user_id_str, data in all_users.items():
+            member = ctx.guild.get_member(int(user_id_str))
+            if member is not None and (data.get("color") or data.get("fields")):
+                users_with_profiles.append(f"{member} (`{user_id_str}`)")
+        user_list = "\n".join(users_with_profiles) or "None"
 
-            elif command == "addcategory":
-                if len(parts) != 4:
-                    await channel.send("❌ Usage: addcategory <id> \"<display_name>\" <type:text|url>")
-                    continue
-                _, identifier, display_name, type_ = parts
-                async with self.config.guild(ctx.guild).categories() as cats:
-                    if identifier in cats:
-                        await channel.send("❌ That identifier already exists.")
-                    else:
-                        cats[identifier] = {"name": display_name, "type": type_}
-                        await channel.send(f"✅ Added category `{identifier}`.")
-
-            elif command == "removecategory":
-                if len(parts) != 2:
-                    await channel.send("❌ Usage: removecategory <id>")
-                    continue
-                _, identifier = parts
-                async with self.config.guild(ctx.guild).categories() as cats:
-                    if identifier not in cats:
-                        await channel.send("❌ That category does not exist.")
-                        continue
-                    del cats[identifier]
-                all_users = await self.config.all_users()
-                for user_id, _ in all_users.items():
-                    async with self.config.user_from_id(user_id).fields() as fields:
-                        if identifier in fields:
-                            del fields[identifier]
-                await channel.send(f"✅ Category `{identifier}` removed from guild and all users.")
-
-            elif command == "toggleedit":
-                if len(parts) != 2:
-                    await channel.send("❌ Usage: toggleedit <True|False>")
-                    continue
-                allow_bool = parts[1].lower() == "true"
-                await self.config.guild(ctx.guild).allow_user_edit.set(allow_bool)
-                await channel.send(f"✅ Users can now {'edit' if allow_bool else 'not edit'} profiles globally.")
-
-            elif command == "edituser":
-                if len(parts) != 4:
-                    await channel.send("❌ Usage: edituser <@user> <field_or_color> <value>")
-                    continue
-                _, user_mention, field, value = parts
-                member = None
-                if user_mention.startswith("<@") and user_mention.endswith(">"):
-                    user_id = int(user_mention.strip("<@!>"))
-                    member = ctx.guild.get_member(user_id)
-                if member is None:
-                    await channel.send("❌ Could not find that user in this server.")
-                    continue
-                if field.lower() == "color":
-                    try:
-                        color = discord.Color(int(value.strip("#"), 16))
-                        await self.config.user(member).color.set(color.value)
-                        await channel.send(f"✅ {member.display_name}'s color updated.")
-                    except ValueError:
-                        await channel.send("❌ Invalid color hex value.")
-                else:
-                    guild_data = await self.config.guild(ctx.guild).all()
-                    if field not in guild_data["categories"]:
-                        await channel.send("❌ That category does not exist.")
-                        continue
-                    category = guild_data["categories"][field]
-                    if category["type"] == "url" and not URL_REGEX.match(value):
-                        await channel.send("❌ That value must be a valid URL.")
-                        continue
-                    async with self.config.user(member).fields() as fields:
-                        fields[field] = value
-                    await channel.send(f"✅ {member.display_name}'s {category['name']} updated.")
-
-            elif command == "removeuserfield":
-                if len(parts) != 3:
-                    await channel.send("❌ Usage: removeuserfield <@user> <field>")
-                    continue
-                _, user_mention, field = parts
-                member = None
-                if user_mention.startswith("<@") and user_mention.endswith(">"):
-                    user_id = int(user_mention.strip("<@!>"))
-                    member = ctx.guild.get_member(user_id)
-                if member is None:
-                    await channel.send("❌ Could not find that user in this server.")
-                    continue
-                async with self.config.user(member).fields() as fields:
-                    if field in fields:
-                        del fields[field]
-                        await channel.send(f"✅ Removed `{field}` from {member.display_name}'s profile.")
-                    else:
-                        await channel.send(f"❌ {member.display_name} does not have a `{field}` field.")
+        await ctx.send(f"**Categories:**\n{category_list}\n\n**Users with profiles:**\n{user_list}")
