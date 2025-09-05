@@ -56,72 +56,84 @@ class Gemini(commands.Cog):
     # Commands
     # ===============================
 
-    @commands.group(
-        invoke_without_command=True,
-        help="Main Gemini command group. Use subcommands to configure or chat with Gemini."
-    )
+    @commands.group(invoke_without_command=True)
     async def gemini(self, ctx):
-        """Talk with Google Gemini AI. Shows this help when used without a subcommand."""
+        """Main Gemini command group.
+
+        Use subcommands to configure or chat with Gemini.
+        """
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @gemini.command(help="Set the Gemini API key for this server (admin only)")
+    @gemini.command()
     @commands.has_permissions(administrator=True)
     async def apiset(self, ctx, api_key: str):
+        """Set the Gemini API key for this server (admin only)."""
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
 
-    @gemini.command(help="Set the Gemini model (admin only)")
+    @gemini.command()
     @commands.has_permissions(administrator=True)
     async def model(self, ctx, model_name: str):
+        """Set the Gemini model (admin only)."""
         await self.config.guild(ctx.guild).model.set(model_name)
         await ctx.reply(f"✅ Gemini model set to `{model_name}`")
 
-    @gemini.command(help="Set or clear the system prompt for this channel (requires Manage Channels)")
+    @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def system(self, ctx, *, prompt: str = None):
+        """Set or clear the system prompt for this channel (requires Manage Channels)."""
         await self.config.channel(ctx.channel).system_prompt.set(prompt)
         if prompt:
             await ctx.reply(f"✅ System prompt set for this channel:\n```{prompt}```")
         else:
             await ctx.reply("🧹 System prompt cleared for this channel.")
 
-    @gemini.command(help="Toggle chat history for this channel (requires Manage Messages)")
+    @gemini.command()
     @commands.has_permissions(manage_messages=True)
     async def togglehistory(self, ctx):
+        """Toggle chat history for this channel (requires Manage Messages)."""
         current = await self.config.channel(ctx.channel).use_history()
         new_state = not current
         await self.config.channel(ctx.channel).use_history.set(new_state)
         await ctx.reply(f"📜 Chat history is now **{'enabled' if new_state else 'disabled'}** for this channel.")
 
-    @gemini.command(help="Toggle auto-response for this channel (requires Manage Channels)")
+    @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def alwaysrespond(self, ctx):
+        """Toggle auto-response for this channel (requires Manage Channels)."""
         current = await self.config.channel(ctx.channel).always_respond()
         new_state = not current
         await self.config.channel(ctx.channel).always_respond.set(new_state)
         await ctx.reply(f"💬 Always-respond is now **{'enabled' if new_state else 'disabled'}** for this channel.")
 
-    @gemini.command(help="Clear the chat history for this channel (requires Manage Messages)")
+    @gemini.command(name="clear")
     @commands.has_permissions(manage_messages=True)
     async def clear(self, ctx):
+        """Clear the chat history for this channel (requires Manage Messages)."""
         await self.config.channel(ctx.channel).history.set([])
         await ctx.reply("🧹 Chat history cleared for this channel.")
 
-    @gemini.command(help="Send a one-off message to Gemini")
+    @gemini.command()
     async def chat(self, ctx, *, message: str):
+        """Send a one-off message to Gemini."""
         await self._handle_message(ctx.channel, ctx.author, message, reply_to=ctx)
 
-    @gemini.command(help="Enable or disable responding to mentions for this server (admin only)")
+    @gemini.command(name="respond")
     @commands.has_permissions(administrator=True)
     async def respond(self, ctx, toggle: bool):
+        """Enable or disable responding to mentions for this server (admin only)."""
         await self.config.guild(ctx.guild).respond_to_mentions.set(toggle)
         msg = "✅ Bot will respond to mentions." if toggle else "❌ Bot will ignore mentions."
         await ctx.reply(msg)
 
-    @gemini.command(help="Set auto-delete time (in days) for chat history in this channel (requires Manage Channels)")
+    @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def autodelete(self, ctx, days: int = None):
+        """Set auto-delete time (in days) for chat history in this channel (requires Manage Channels).
+
+        Pass no value to disable auto-deletion.
+        """
         if days is None:
             await self.config.channel(ctx.channel).auto_delete_days.set(None)
             await ctx.reply("🗑️ Auto-delete disabled for this channel.")
@@ -135,6 +147,7 @@ class Gemini(commands.Cog):
 
     @commands.Cog.listener("on_message_without_command")
     async def gemini_message_handler(self, message: discord.Message):
+        """Listener that processes messages for Gemini in always-respond or mention mode."""
         if message.author.bot or not message.guild:
             return
 
@@ -162,6 +175,7 @@ class Gemini(commands.Cog):
     # ===============================
 
     async def _handle_message(self, channel, author, content, reply_to):
+        """Handle a standard Gemini query, with optional history and system prompt."""
         api_key = await self.config.guild(channel.guild).api_key()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
@@ -206,9 +220,7 @@ class Gemini(commands.Cog):
         await reply_to.reply(reply_text)
 
     async def _handle_reply_query(self, channel, author, referenced_message, query, reply_to):
-        """
-        Handles reply-based ephemeral queries (does not affect history)
-        """
+        """Handle an ephemeral Gemini query based on a replied-to message (does not affect history)."""
         api_key = await self.config.guild(channel.guild).api_key()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()

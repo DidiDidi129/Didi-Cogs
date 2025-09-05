@@ -263,6 +263,3 @@ class Profile(commands.Cog):
                         await channel.send(f"✅ Removed `{field}` from {member.display_name}'s profile.")
                     else:
                         await channel.send(f"❌ {member.display_name} does not have a `{field}` field.")
-
-async def setup(bot):
-    await bot.add_cog(Profile(bot))
