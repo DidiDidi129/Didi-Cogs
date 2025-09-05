@@ -114,11 +114,11 @@ class Profile(commands.Cog):
 
         await dm.send("✅ Profile setup complete!")
 
-    # --------------------------
-    # Admin tools (as commands)
-    # --------------------------
+    # -----------
+    # Admin tools
+    # -----------
     @profileset.group(name="admin")
-    @checks.is_owner()
+    @commands.admin_or_permissions(administrator=True)
     async def profileset_admin(self, ctx):
         """Admin tools for managing categories and user profiles."""
         if ctx.invoked_subcommand is None:
@@ -151,7 +151,7 @@ class Profile(commands.Cog):
 
     @profileset_admin.command(name="toggleedit")
     async def admin_toggle_edit(self, ctx, allow: bool):
-        """Toggle whether users can edit their profiles globally."""
+        """Toggle whether users can edit their profiles."""
         await self.config.guild(ctx.guild).allow_user_edit.set(allow)
         await ctx.send(f"✅ Users can now {'edit' if allow else 'not edit'} their profiles.")
 
