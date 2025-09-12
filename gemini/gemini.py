@@ -217,10 +217,10 @@ class Gemini(commands.Cog):
             cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=auto_days)
             history = [h for h in history if "time" in h and datetime.datetime.fromisoformat(h["time"]) > cutoff]
 
-        # Add user message
+        # Add user message WITHOUT username
         history.append({
             "role": "user",
-            "content": f"{author.display_name}: {content}",
+            "content": content,
             "time": datetime.datetime.utcnow().isoformat()
         })
 
@@ -253,14 +253,14 @@ class Gemini(commands.Cog):
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Build temporary history for this ephemeral query
-        first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
+        # Build temporary history for this ephemeral query WITHOUT usernames
+        first_message = f"{referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
 
         temp_history = [
             {"role": "user", "content": first_message},
-            {"role": "user", "content": f"{author.display_name} asks: {query}"}
+            {"role": "user", "content": query}
         ]
 
         reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
