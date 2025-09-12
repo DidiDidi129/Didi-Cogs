@@ -13,8 +13,8 @@ class Gemini(commands.Cog):
 
         default_guild = {
             "api_key": None,
-            "api_url": "https://generativelanguage.googleapis.com/v1beta/models",  # default base URL
-            "model": "gemini-2.0-flash",
+            "api_url": "https://generativelanguage.googleapis.com/v1beta/models",  # default
+            "model": "gemini-2.0-flash",  # default model
             "respond_to_mentions": True,
         }
         default_channel = {
@@ -29,24 +29,29 @@ class Gemini(commands.Cog):
 
     async def call_gemini(self, api_key: str, api_url: str, model: str, history: list):
         """
-        Call Gemini (or custom) API with history.
-        All messages are user role; system prompt already prepended if needed.
+        Call Gemini API with history.
+        - If api_url points to Google → append /{model}:generateContent with ?key=
+        - If custom API → send directly to base URL with "model" inside JSON
         """
-
-        # Ensure API URL starts with http/https
+        # Ensure valid scheme
         if not api_url.startswith("http://") and not api_url.startswith("https://"):
             api_url = "https://" + api_url.strip("/")
 
-        # Normalize and build full endpoint
-        url = f"{api_url.rstrip('/')}/{model}:generateContent"
+        if "generativelanguage.googleapis.com" in api_url:
+            url = f"{api_url.rstrip('/')}/{model}:generateContent"
+            params = {"key": api_key}
+        else:
+            url = api_url.rstrip("/")
+            params = None
 
         headers = {"Content-Type": "application/json"}
 
-        # Google Gemini uses ?key= param, others might not
-        params = {"key": api_key} if "generativelanguage.googleapis.com" in api_url else None
-
+        # Build history
         contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
+
         payload = {"contents": contents}
+        if "generativelanguage.googleapis.com" not in api_url:
+            payload["model"] = model
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, params=params, json=payload) as resp:
@@ -84,17 +89,10 @@ class Gemini(commands.Cog):
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
-    async def apiurl(self, ctx, url: str = None):
-        """Set a custom API URL for this server (admin only).
-
-        Pass no URL to reset back to the default Gemini API.
-        """
-        if not url:
-            await self.config.guild(ctx.guild).api_url.set("https://generativelanguage.googleapis.com/v1beta/models")
-            await ctx.reply("🔄 API URL reset to default Gemini endpoint.")
-        else:
-            await self.config.guild(ctx.guild).api_url.set(url.rstrip("/"))
-            await ctx.reply(f"✅ Custom API URL set to:\n```{url}```")
+    async def apiurl(self, ctx, url: str):
+        """Set a custom Gemini API URL for this server (admin only)."""
+        await self.config.guild(ctx.guild).api_url.set(url)
+        await ctx.reply(f"✅ Gemini API URL set to:\n```{url}```")
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
@@ -206,7 +204,7 @@ class Gemini(commands.Cog):
         system_prompt = await self.config.channel(channel).system_prompt()
         use_history = await self.config.channel(channel).use_history()
 
-        if not api_key and "generativelanguage.googleapis.com" in api_url:
+        if not api_key:
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
@@ -230,12 +228,12 @@ class Gemini(commands.Cog):
         if system_prompt and history:
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
-        # Call API
+        # Call Gemini
         reply_text = await self.call_gemini(api_key, api_url, model, history)
 
         # Save/update history
         history.append({
-            "role": "user",
+            "role": "assistant",
             "content": reply_text,
             "time": datetime.datetime.utcnow().isoformat()
         })
@@ -251,11 +249,11 @@ class Gemini(commands.Cog):
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
 
-        if not api_key and "generativelanguage.googleapis.com" in api_url:
+        if not api_key:
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Build temporary history
+        # Build temporary history for this ephemeral query
         first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
