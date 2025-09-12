@@ -32,8 +32,17 @@ class Gemini(commands.Cog):
         Call Gemini (or custom) API with history.
         All messages are user role; system prompt already prepended if needed.
         """
-        url = f"{api_url}/{model}:generateContent"
+
+        # Ensure API URL starts with http/https
+        if not api_url.startswith("http://") and not api_url.startswith("https://"):
+            api_url = "https://" + api_url.strip("/")
+
+        # Normalize and build full endpoint
+        url = f"{api_url.rstrip('/')}/{model}:generateContent"
+
         headers = {"Content-Type": "application/json"}
+
+        # Google Gemini uses ?key= param, others might not
         params = {"key": api_key} if "generativelanguage.googleapis.com" in api_url else None
 
         contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
