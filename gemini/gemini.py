@@ -5,7 +5,7 @@ import datetime
 
 
 class Gemini(commands.Cog):
-    """Gemini API integration for Red-DiscordBot"""
+    """Gemini API integration for Red-DiscordBot with proper reply support"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -27,6 +27,9 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
+    # ===============================
+    # Gemini API call
+    # ===============================
     async def call_gemini(self, api_key: str, api_url: str, model: str, history: list):
         """Call Gemini API with the given conversation history."""
         if not api_url.startswith("http://") and not api_url.startswith("https://"):
@@ -40,7 +43,7 @@ class Gemini(commands.Cog):
             params = None
 
         headers = {"Content-Type": "application/json"}
-        contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
+        contents = [{"role": h.get("role", "user"), "parts": [{"text": h["content"]}]} for h in history]
         payload = {"contents": contents}
         if "generativelanguage.googleapis.com" not in api_url:
             payload["model"] = model
@@ -62,7 +65,6 @@ class Gemini(commands.Cog):
     # ===============================
     # Commands
     # ===============================
-
     @commands.group(invoke_without_command=True)
     async def gemini(self, ctx):
         """Main Gemini command group."""
@@ -142,22 +144,23 @@ class Gemini(commands.Cog):
     # ===============================
     # Listener
     # ===============================
-
     @commands.Cog.listener("on_message_without_command")
     async def gemini_message_handler(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
 
-        if await self.config.channel(message.channel).always_respond():
+        channel_cfg = self.config.channel(message.channel)
+        guild_cfg = self.config.guild(message.guild)
+
+        if await channel_cfg.always_respond():
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
 
         if self.bot.user.mention in message.content:
-            respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
-            if not respond_enabled:
+            if not await guild_cfg.respond_to_mentions():
                 return
-            content = message.clean_content.replace(self.bot.user.mention, "").strip()
 
+            content = message.clean_content.replace(self.bot.user.mention, "").strip()
             if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
                 await self._handle_reply_query(message.channel, message.author, ref, content, reply_to=message)
                 return
@@ -168,7 +171,6 @@ class Gemini(commands.Cog):
     # ===============================
     # Core handlers
     # ===============================
-
     async def _handle_message(self, channel, author, content, reply_to):
         api_key = await self.config.guild(channel.guild).api_key()
         api_url = await self.config.guild(channel.guild).api_url()
@@ -187,7 +189,7 @@ class Gemini(commands.Cog):
             cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=auto_days)
             history = [h for h in history if "time" in h and datetime.datetime.fromisoformat(h["time"]) > cutoff]
 
-        # Add user message without prepending username
+        # Add user message
         history.append({
             "role": "user",
             "content": content,
@@ -195,10 +197,12 @@ class Gemini(commands.Cog):
         })
 
         if system_prompt and history:
+            # Prepend system prompt to first message
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
         reply_text = await self.call_gemini(api_key, api_url, model, history)
 
+        # Store assistant reply
         history.append({
             "role": "assistant",
             "content": reply_text,
@@ -214,20 +218,47 @@ class Gemini(commands.Cog):
         api_url = await self.config.guild(channel.guild).api_url()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
+        use_history = await self.config.channel(channel).use_history()
 
         if not api_key:
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Include referenced author's name in ephemeral context
-        first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
-        if system_prompt:
-            first_message = f"{system_prompt}\n{first_message}"
+        # Start with existing channel history if enabled
+        history = await self.config.channel(channel).history() if use_history else []
 
-        temp_history = [
-            {"role": "user", "content": first_message},
-            {"role": "user", "content": query}
-        ]
+        # Include system prompt if first message
+        if system_prompt and not history:
+            history.append({
+                "role": "system",
+                "content": system_prompt,
+                "time": datetime.datetime.utcnow().isoformat()
+            })
 
-        reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        # Include referenced message
+        history.append({
+            "role": "user",
+            "content": f"{referenced_message.author.display_name} said: {referenced_message.content}",
+            "time": datetime.datetime.utcnow().isoformat()
+        })
+
+        # Include current query
+        history.append({
+            "role": "user",
+            "content": query,
+            "time": datetime.datetime.utcnow().isoformat()
+        })
+
+        # Call Gemini
+        reply_text = await self.call_gemini(api_key, api_url, model, history)
+
+        # Append assistant reply
+        if use_history:
+            history.append({
+                "role": "assistant",
+                "content": reply_text,
+                "time": datetime.datetime.utcnow().isoformat()
+            })
+            await self.config.channel(channel).history.set(history)
+
         await reply_to.reply(reply_text)
