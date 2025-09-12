@@ -5,7 +5,7 @@ import datetime
 
 
 class Gemini(commands.Cog):
-    """Gemini API integration for Red-DiscordBot with proper reply support"""
+    """Gemini API integration for Red-DiscordBot with reply support"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -142,11 +142,16 @@ class Gemini(commands.Cog):
             await ctx.reply(f"🗑️ Auto-delete set: Chat history will be wiped every {days} day(s).")
 
     # ===============================
-    # Listener
+    # Listener (fixed)
     # ===============================
-    @commands.Cog.listener("on_message_without_command")
-    async def gemini_message_handler(self, message: discord.Message):
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
+            return
+
+        # Ignore commands handled by Red
+        ctx = await self.bot.get_context(message)
+        if ctx.valid:
             return
 
         channel_cfg = self.config.channel(message.channel)
@@ -197,7 +202,6 @@ class Gemini(commands.Cog):
         })
 
         if system_prompt and history:
-            # Prepend system prompt to first message
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
         reply_text = await self.call_gemini(api_key, api_url, model, history)
@@ -224,10 +228,9 @@ class Gemini(commands.Cog):
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Start with existing channel history if enabled
+        # Use channel history if enabled
         history = await self.config.channel(channel).history() if use_history else []
 
-        # Include system prompt if first message
         if system_prompt and not history:
             history.append({
                 "role": "system",
@@ -249,10 +252,8 @@ class Gemini(commands.Cog):
             "time": datetime.datetime.utcnow().isoformat()
         })
 
-        # Call Gemini
         reply_text = await self.call_gemini(api_key, api_url, model, history)
 
-        # Append assistant reply
         if use_history:
             history.append({
                 "role": "assistant",
