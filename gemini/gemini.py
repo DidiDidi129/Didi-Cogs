@@ -13,6 +13,7 @@ class Gemini(commands.Cog):
 
         default_guild = {
             "api_key": None,
+            "base_url": None,
             "model": "gemini-2.0-flash",  # default model
             "respond_to_mentions": True,
         }
@@ -26,14 +27,19 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, model: str, history: list):
+    async def call_gemini(self, model: str, history: list, api_key: str = None, base_url: str = None):
         """
         Call Gemini API with history. All messages are user role;
         system prompt already prepended if needed.
         """
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        headers = {"Content-Type": "application/json"}
-        params = {"key": api_key}
+        if base_url:
+            url = f"{base_url}/v1beta/models/{model}:generateContent"
+            headers = {"Content-Type": "application/json"}
+            params = {}
+        else:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            headers = {"Content-Type": "application/json"}
+            params = {"key": api_key}
 
         contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
         payload = {"contents": contents}
@@ -71,6 +77,19 @@ class Gemini(commands.Cog):
         """Set the Gemini API key for this server (admin only)."""
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
+
+    @gemini.command()
+    @commands.has_permissions(administrator=True)
+    async def baseurl(self, ctx, url: str = None):
+        """Set a custom base URL for the Gemini API (admin only).
+        
+        This is useful for proxying requests. Using this will not require an API key.
+        """
+        await self.config.guild(ctx.guild).base_url.set(url)
+        if url:
+            await ctx.reply(f"✅ Custom base URL set to `{url}`.")
+        else:
+            await ctx.reply("✅ Custom base URL removed.")
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
@@ -177,12 +196,13 @@ class Gemini(commands.Cog):
     async def _handle_message(self, channel, author, content, reply_to):
         """Handle a standard Gemini query, with optional history and system prompt."""
         api_key = await self.config.guild(channel.guild).api_key()
+        base_url = await self.config.guild(channel.guild).base_url()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
         use_history = await self.config.channel(channel).use_history()
 
-        if not api_key:
-            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
+        if not api_key and not base_url:
+            await reply_to.reply("⚠️ No API key or custom base URL set. Use `?gemini apiset <API_KEY>` or `?gemini baseurl <URL>` first.")
             return
 
         # Load history
@@ -206,7 +226,7 @@ class Gemini(commands.Cog):
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
         # Call Gemini
-        reply_text = await self.call_gemini(api_key, model, history)
+        reply_text = await self.call_gemini(model, history, api_key=api_key, base_url=base_url)
 
         # Save/update history
         history.append({
@@ -222,11 +242,12 @@ class Gemini(commands.Cog):
     async def _handle_reply_query(self, channel, author, referenced_message, query, reply_to):
         """Handle an ephemeral Gemini query based on a replied-to message (does not affect history)."""
         api_key = await self.config.guild(channel.guild).api_key()
+        base_url = await self.config.guild(channel.guild).base_url()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
 
-        if not api_key:
-            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
+        if not api_key and not base_url:
+            await reply_to.reply("⚠️ No API key or custom base URL set. Use `?gemini apiset <API_KEY>` or `?gemini baseurl <URL>` first.")
             return
 
         # Build temporary history for this ephemeral query
@@ -239,5 +260,5 @@ class Gemini(commands.Cog):
             {"role": "user", "content": f"{author.display_name} asks: {query}"}
         ]
 
-        reply_text = await self.call_gemini(api_key, model, temp_history)
+        reply_text = await self.call_gemini(model, temp_history, api_key=api_key, base_url=base_url)
         await reply_to.reply(reply_text)
