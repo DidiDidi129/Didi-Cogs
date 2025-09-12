@@ -13,7 +13,8 @@ class Gemini(commands.Cog):
 
         default_guild = {
             "api_key": None,
-            "model": "gemini-2.0-flash",  # default model
+            "api_url": "https://generativelanguage.googleapis.com/v1beta/models",  # default base URL
+            "model": "gemini-2.0-flash",
             "respond_to_mentions": True,
         }
         default_channel = {
@@ -26,14 +27,14 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, model: str, history: list):
+    async def call_gemini(self, api_key: str, api_url: str, model: str, history: list):
         """
-        Call Gemini API with history. All messages are user role;
-        system prompt already prepended if needed.
+        Call Gemini (or custom) API with history.
+        All messages are user role; system prompt already prepended if needed.
         """
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        url = f"{api_url}/{model}:generateContent"
         headers = {"Content-Type": "application/json"}
-        params = {"key": api_key}
+        params = {"key": api_key} if "generativelanguage.googleapis.com" in api_url else None
 
         contents = [{"role": "user", "parts": [{"text": entry["content"]}]} for entry in history]
         payload = {"contents": contents}
@@ -50,7 +51,7 @@ class Gemini(commands.Cog):
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError):
-            return "⚠️ Gemini API returned an unexpected response."
+            return "⚠️ API returned an unexpected response."
 
     # ===============================
     # Commands
@@ -71,6 +72,20 @@ class Gemini(commands.Cog):
         """Set the Gemini API key for this server (admin only)."""
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
+
+    @gemini.command()
+    @commands.has_permissions(administrator=True)
+    async def apiurl(self, ctx, url: str = None):
+        """Set a custom API URL for this server (admin only).
+
+        Pass no URL to reset back to the default Gemini API.
+        """
+        if not url:
+            await self.config.guild(ctx.guild).api_url.set("https://generativelanguage.googleapis.com/v1beta/models")
+            await ctx.reply("🔄 API URL reset to default Gemini endpoint.")
+        else:
+            await self.config.guild(ctx.guild).api_url.set(url.rstrip("/"))
+            await ctx.reply(f"✅ Custom API URL set to:\n```{url}```")
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
@@ -142,7 +157,7 @@ class Gemini(commands.Cog):
             await ctx.reply(f"🗑️ Auto-delete set: Chat history will be wiped every {days} day(s).")
 
     # ===============================
-    # Listener (cleaner: no prefix checks)
+    # Listener
     # ===============================
 
     @commands.Cog.listener("on_message_without_command")
@@ -177,11 +192,12 @@ class Gemini(commands.Cog):
     async def _handle_message(self, channel, author, content, reply_to):
         """Handle a standard Gemini query, with optional history and system prompt."""
         api_key = await self.config.guild(channel.guild).api_key()
+        api_url = await self.config.guild(channel.guild).api_url()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
         use_history = await self.config.channel(channel).use_history()
 
-        if not api_key:
+        if not api_key and "generativelanguage.googleapis.com" in api_url:
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
@@ -205,8 +221,8 @@ class Gemini(commands.Cog):
         if system_prompt and history:
             history[0]["content"] = f"{system_prompt}\n{history[0]['content']}"
 
-        # Call Gemini
-        reply_text = await self.call_gemini(api_key, model, history)
+        # Call API
+        reply_text = await self.call_gemini(api_key, api_url, model, history)
 
         # Save/update history
         history.append({
@@ -222,14 +238,15 @@ class Gemini(commands.Cog):
     async def _handle_reply_query(self, channel, author, referenced_message, query, reply_to):
         """Handle an ephemeral Gemini query based on a replied-to message (does not affect history)."""
         api_key = await self.config.guild(channel.guild).api_key()
+        api_url = await self.config.guild(channel.guild).api_url()
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
 
-        if not api_key:
+        if not api_key and "generativelanguage.googleapis.com" in api_url:
             await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
             return
 
-        # Build temporary history for this ephemeral query
+        # Build temporary history
         first_message = f"{referenced_message.author.display_name} said: {referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
@@ -239,5 +256,5 @@ class Gemini(commands.Cog):
             {"role": "user", "content": f"{author.display_name} asks: {query}"}
         ]
 
-        reply_text = await self.call_gemini(api_key, model, temp_history)
+        reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
         await reply_to.reply(reply_text)
