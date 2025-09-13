@@ -174,7 +174,7 @@ class Gemini(commands.Cog):
 
     @commands.Cog.listener("on_message_without_command")
     async def gemini_message_handler(self, message: discord.Message):
-        """Processes messages for Gemini in always-respond or mention mode."""
+        """Processes messages for Gemini in always-respond, reply, or mention mode."""
         if message.author.bot or not message.guild:
             return
 
@@ -183,14 +183,19 @@ class Gemini(commands.Cog):
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
 
-        # Mention mode
+        # Replying directly to the bot (no mention needed)
+        if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
+            if ref.author.id == self.bot.user.id:
+                await self._handle_reply_query(message.channel, message.author, ref, message.content, reply_to=message)
+                return
+
+        # Mention mode (with optional context)
         if self.bot.user.mention in message.content:
             respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
             if not respond_enabled:
                 return
             content = message.clean_content.replace(self.bot.user.mention, "").strip()
 
-            # Reply-to-message context
             if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
                 if ref.author.id == self.bot.user.id:
                     await self._handle_reply_query(message.channel, message.author, ref, content, reply_to=message)
