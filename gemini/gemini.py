@@ -19,7 +19,7 @@ class Gemini(commands.Cog):
         }
         default_channel = {
             "history": [],
-            "system_prompt": None,
+            "system_prompt": "You are a friendly chatbot. You speak casually. You are a discord bot. You are good at helping people.",
             "always_respond": False,
             "use_history": True,
             "auto_delete_days": None,
