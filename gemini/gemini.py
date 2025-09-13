@@ -152,7 +152,7 @@ class Gemini(commands.Cog):
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
 
-        # Replying to the bot (no mention needed)
+        # Reply to bot (no mention needed)
         if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
             if ref.author.id == self.bot.user.id:
                 await self._handle_reply_query(message.channel, message.author, ref, message.content, reply_to=message)
@@ -163,7 +163,16 @@ class Gemini(commands.Cog):
             respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
             if not respond_enabled:
                 return
+
             content = message.clean_content.replace(self.bot.user.mention, "").strip()
+
+            # If mention happens while replying to someone else → use that msg as context
+            if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
+                # Reply + mention → use referenced message as context
+                await self._handle_user_reply_query(message.channel, message.author, ref, content, reply_to=message)
+                return
+
+            # Otherwise just treat it as a normal message
             if content:
                 await self._handle_message(message.channel, message.author, content, reply_to=message)
 
@@ -221,6 +230,29 @@ class Gemini(commands.Cog):
             return
 
         first_message = f"{referenced_message.content}"
+        if system_prompt:
+            first_message = f"{system_prompt}\n{first_message}"
+
+        temp_history = [
+            {"role": "user", "content": first_message},
+            {"role": "user", "content": query}
+        ]
+
+        reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        await reply_to.reply(reply_text)
+
+    async def _handle_user_reply_query(self, channel, author, referenced_message, query, reply_to):
+        """Handle Gemini when bot is mentioned in a reply to someone else's message."""
+        api_key = await self.config.guild(channel.guild).api_key()
+        api_url = await self.config.guild(channel.guild).api_url()
+        model = await self.config.guild(channel.guild).model()
+        system_prompt = await self.config.channel(channel).system_prompt()
+
+        if not api_key:
+            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
+            return
+
+        first_message = f"{referenced_message.author.display_name} said:\n{referenced_message.content}"
         if system_prompt:
             first_message = f"{system_prompt}\n{first_message}"
 
