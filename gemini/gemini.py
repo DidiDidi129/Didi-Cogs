@@ -45,18 +45,18 @@ class Gemini(commands.Cog):
 
         headers = {"Content-Type": "application/json"}
 
-        # Convert history into Gemini format
+        # Convert history into Gemini format (avoid "assistant" role)
         contents = []
         for entry in history:
             role = entry["role"]
             if role == "system":
                 contents.append({
-                    "role": "user",
-                    "parts": [{"text": f"[System instruction]\n{entry['content']}"}]
+                    "role": "system",
+                    "parts": [{"text": entry["content"]}]
                 })
-            else:
+            else:  # all user + assistant messages → role "user"
                 contents.append({
-                    "role": role,
+                    "role": "user",
                     "parts": [{"text": entry["content"]}]
                 })
 
@@ -64,14 +64,19 @@ class Gemini(commands.Cog):
         if "generativelanguage.googleapis.com" not in api_url:
             payload["model"] = model
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, params=params, json=payload) as resp:
-                if resp.status == 503:
-                    return "⚠️ Model overloaded, please try again soon"
-                if resp.status != 200:
-                    text = await resp.text()
-                    return f"❌ Error {resp.status}: {text}"
-                data = await resp.json()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, params=params, json=payload) as resp:
+                    if resp.status == 503:
+                        return "⚠️ Model overloaded, please try again soon"
+                    if resp.status != 200:
+                        text = await resp.text()
+                        return f"❌ Error {resp.status}: {text}"
+                    data = await resp.json()
+        except aiohttp.ClientConnectorError as e:
+            return f"❌ Could not connect to API host:\n```{e}```"
+        except Exception as e:
+            return f"❌ Unexpected error while contacting Gemini:\n```{e}```"
 
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -84,35 +89,30 @@ class Gemini(commands.Cog):
 
     @commands.group(invoke_without_command=True)
     async def gemini(self, ctx):
-        """Main Gemini command group."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
     async def apiset(self, ctx, api_key: str):
-        """Set the Gemini API key for this server (admin only)."""
         await self.config.guild(ctx.guild).api_key.set(api_key)
         await ctx.reply("✅ Gemini API key has been set.")
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
     async def apiurl(self, ctx, url: str):
-        """Set a custom Gemini API URL for this server (admin only)."""
         await self.config.guild(ctx.guild).api_url.set(url)
         await ctx.reply(f"✅ Gemini API URL set to:\n```{url}```")
 
     @gemini.command()
     @commands.has_permissions(administrator=True)
     async def model(self, ctx, model_name: str):
-        """Set the Gemini model (admin only)."""
         await self.config.guild(ctx.guild).model.set(model_name)
         await ctx.reply(f"✅ Gemini model set to `{model_name}`")
 
     @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def system(self, ctx, *, prompt: str = None):
-        """Set or clear the system prompt for this channel (requires Manage Channels)."""
         await self.config.channel(ctx.channel).system_prompt.set(prompt)
         if prompt:
             await ctx.reply(f"✅ System prompt set for this channel:\n```{prompt}```")
@@ -122,7 +122,6 @@ class Gemini(commands.Cog):
     @gemini.command()
     @commands.has_permissions(manage_messages=True)
     async def togglehistory(self, ctx):
-        """Toggle chat history for this channel (requires Manage Messages)."""
         current = await self.config.channel(ctx.channel).use_history()
         new_state = not current
         await self.config.channel(ctx.channel).use_history.set(new_state)
@@ -131,7 +130,6 @@ class Gemini(commands.Cog):
     @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def alwaysrespond(self, ctx):
-        """Toggle auto-response for this channel (requires Manage Channels)."""
         current = await self.config.channel(ctx.channel).always_respond()
         new_state = not current
         await self.config.channel(ctx.channel).always_respond.set(new_state)
@@ -140,19 +138,16 @@ class Gemini(commands.Cog):
     @gemini.command(name="clear")
     @commands.has_permissions(manage_messages=True)
     async def clear(self, ctx):
-        """Clear the chat history for this channel (requires Manage Messages)."""
         await self.config.channel(ctx.channel).history.set([])
         await ctx.reply("🧹 Chat history cleared for this channel.")
 
     @gemini.command()
     async def chat(self, ctx, *, message: str):
-        """Send a one-off message to Gemini."""
         await self._handle_message(ctx.channel, ctx.author, message, reply_to=ctx)
 
     @gemini.command(name="respond")
     @commands.has_permissions(administrator=True)
     async def respond(self, ctx, toggle: bool):
-        """Enable or disable responding to mentions for this server (admin only)."""
         await self.config.guild(ctx.guild).respond_to_mentions.set(toggle)
         msg = "✅ Bot will respond to mentions." if toggle else "❌ Bot will ignore mentions."
         await ctx.reply(msg)
@@ -160,7 +155,6 @@ class Gemini(commands.Cog):
     @gemini.command()
     @commands.has_permissions(manage_channels=True)
     async def autodelete(self, ctx, days: int = None):
-        """Set auto-delete time (in days) for chat history in this channel (requires Manage Channels)."""
         if days is None:
             await self.config.channel(ctx.channel).auto_delete_days.set(None)
             await ctx.reply("🗑️ Auto-delete disabled for this channel.")
@@ -174,22 +168,20 @@ class Gemini(commands.Cog):
 
     @commands.Cog.listener("on_message_without_command")
     async def gemini_message_handler(self, message: discord.Message):
-        """Processes messages for Gemini in always-respond, reply, or mention mode."""
         if message.author.bot or not message.guild:
             return
 
-        # Always respond mode
         if await self.config.channel(message.channel).always_respond():
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
 
-        # Replying directly to the bot (no mention needed)
+        # Replying directly to bot
         if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
             if ref.author.id == self.bot.user.id:
                 await self._handle_reply_query(message.channel, message.author, ref, message.content, reply_to=message)
                 return
 
-        # Mention mode (with optional context)
+        # Mention mode with optional context
         if self.bot.user.mention in message.content:
             respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
             if not respond_enabled:
@@ -234,7 +226,12 @@ class Gemini(commands.Cog):
 
         history.append({"role": "user", "content": content, "time": datetime.datetime.utcnow().isoformat()})
 
-        reply_text = await self.call_gemini(api_key, api_url, model, history)
+        try:
+            async with channel.typing():
+                reply_text = await self.call_gemini(api_key, api_url, model, history)
+        except Exception as e:
+            await reply_to.reply(f"❌ Unexpected error: ```{e}```")
+            return
 
         history.append({"role": "assistant", "content": reply_text, "time": datetime.datetime.utcnow().isoformat()})
         if use_history:
@@ -248,10 +245,6 @@ class Gemini(commands.Cog):
         model = await self.config.guild(channel.guild).model()
         system_prompt = await self.config.channel(channel).system_prompt()
 
-        if not api_key:
-            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
-            return
-
         temp_history = []
         if system_prompt:
             temp_history.append({"role": "system", "content": system_prompt})
@@ -259,18 +252,20 @@ class Gemini(commands.Cog):
         temp_history.append({"role": "user", "content": referenced_message.content})
         temp_history.append({"role": "user", "content": query})
 
-        reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        try:
+            async with channel.typing():
+                reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        except Exception as e:
+            await reply_to.reply(f"❌ Unexpected error: ```{e}```")
+            return
+
         await reply_to.reply(reply_text)
 
     async def _handle_user_reply_query(self, channel, author, referenced_message, query, reply_to):
         api_key = await self.config.guild(channel.guild).api_key()
         api_url = await self.config.guild(channel.guild).api_url()
         model = await self.config.guild(channel.guild).model()
-        system_prompt = await self.config.channel(channel).system_prompt()
-
-        if not api_key:
-            await reply_to.reply("⚠️ No API key set. Use `?gemini apiset <API_KEY>` first.")
-            return
+        system_prompt = await self.config.channel(channel.channel).system_prompt()
 
         temp_history = []
         if system_prompt:
@@ -279,5 +274,11 @@ class Gemini(commands.Cog):
         temp_history.append({"role": "user", "content": f"{referenced_message.author.display_name} said:\n{referenced_message.content}"})
         temp_history.append({"role": "user", "content": query})
 
-        reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        try:
+            async with channel.typing():
+                reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+        except Exception as e:
+            await reply_to.reply(f"❌ Unexpected error: ```{e}```")
+            return
+
         await reply_to.reply(reply_text)
