@@ -17,7 +17,6 @@ class APOD(commands.Cog):
             "channel_id": None,
             "post_time": "09:00",  # Default time UTC
             "include_info": True,
-            "last_post_date": None,
         }
 
         self.config.register_guild(**default_guild)
@@ -29,8 +28,9 @@ class APOD(commands.Cog):
         asyncio.create_task(self.session.close())
 
     async def fetch_apod(self, date=None):
+        """Fetch APOD data from NASA API."""
         base_url = "https://api.nasa.gov/planetary/apod"
-        params = {"api_key": "DEMO_KEY"}  # replace with real key
+        params = {"api_key": "DEMO_KEY"}  # Replace with real key if needed
         if date:
             params["date"] = date
 
@@ -113,7 +113,6 @@ class APOD(commands.Cog):
             return
         await self.config.guild(ctx.guild).post_time.set(time)
         await ctx.send(f"✅ APOD post time set to {time} UTC.")
-        self.daily_apod_task.restart()  # restart with new time
 
     @apodset.command()
     async def includeinfo(self, ctx, value: bool):
@@ -123,27 +122,17 @@ class APOD(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def daily_apod_task(self):
-        """Runs once per minute, checks if it's time to post."""
-        now = datetime.datetime.utcnow()
-        today_str = now.strftime("%Y-%m-%d")
+        now = datetime.datetime.utcnow().strftime("%H:%M")
 
         for guild in self.bot.guilds:
             channel_id = await self.config.guild(guild).channel_id()
             post_time = await self.config.guild(guild).post_time()
             include_info = await self.config.guild(guild).include_info()
-            last_post = await self.config.guild(guild).last_post_date()
 
-            if not channel_id or not post_time:
-                continue
-
-            hour, minute = map(int, post_time.split(":"))
-            post_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-            if now >= post_dt and last_post != today_str:
+            if channel_id and now == post_time:
                 channel = guild.get_channel(channel_id)
                 if channel:
                     await self.send_apod(channel, None, include_info)
-                    await self.config.guild(guild).last_post_date.set(today_str)
 
     @daily_apod_task.before_loop
     async def before_daily_apod_task(self):
