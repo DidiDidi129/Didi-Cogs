@@ -120,25 +120,46 @@ class APOD(commands.Cog):
 
                 html = await resp.text()
                 soup = BeautifulSoup(html, "html.parser")
+
+                # Find main image
                 img_tag = soup.find("img")
                 if img_tag:
-                    img_src = "https://apod.nasa.gov/apod/" + img_tag.get("src")
+                    parent_a = img_tag.find_parent("a")
+                    if parent_a and parent_a.get("href"):
+                        img_src = parent_a["href"]
+                    else:
+                        img_src = img_tag["src"]
+
+                    # Ensure full URL
+                    if not img_src.startswith("http"):
+                        img_src = "https://apod.nasa.gov/apod/" + img_src.lstrip("/")
+
+                    # Title
                     title_tag = soup.find("b")
                     title = title_tag.text.strip() if title_tag else "Astronomy Picture of the Day"
+
                     if use_embeds:
-                        embed = discord.Embed(title=title, url=archive_link,
-                                              color=discord.Color.blue(),
-                                              timestamp=datetime.datetime.utcnow())
+                        embed = discord.Embed(
+                            title=title,
+                            url=archive_link,
+                            color=discord.Color.blue(),
+                            timestamp=datetime.datetime.utcnow()
+                        )
                         embed.set_image(url=img_src)
                         await channel.send(content=message_content or None, embed=embed)
                     else:
                         await channel.send(content=message_content + f"**{title}**\n{img_src}")
                 else:
+                    # Video fallback
                     content = f"📹 Videos are not yet supported, go here to see today's video: {archive_link}"
                     if use_embeds:
-                        embed = discord.Embed(title="Astronomy Picture of the Day", url=archive_link,
-                                              description=content, color=discord.Color.orange(),
-                                              timestamp=datetime.datetime.utcnow())
+                        embed = discord.Embed(
+                            title="Astronomy Picture of the Day",
+                            url=archive_link,
+                            description=content,
+                            color=discord.Color.orange(),
+                            timestamp=datetime.datetime.utcnow()
+                        )
                         await channel.send(content=message_content or None, embed=embed)
                     else:
                         await channel.send(content=message_content + content)
