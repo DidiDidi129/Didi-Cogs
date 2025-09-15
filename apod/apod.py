@@ -4,6 +4,7 @@ from discord.ext import tasks
 import aiohttp
 import asyncio
 import datetime
+from bs4 import BeautifulSoup  # make sure beautifulsoup4 is installed
 
 
 class APOD(commands.Cog):
@@ -22,7 +23,7 @@ class APOD(commands.Cog):
 
         default_global = {
             "use_embeds": True,
-            "api_key": "DEMO_KEY"  # replace with your own key
+            "api_key": "DEMO_KEY"  # replace with your own
         }
 
         self.config.register_guild(**default_guild)
@@ -53,82 +54,103 @@ class APOD(commands.Cog):
         use_embeds = await self.config.use_embeds()
         data = await self.fetch_apod(date)
 
-        # Build archive link based on date (works even if API fails)
+        # Build archive link
         try:
             d = datetime.datetime.strptime(date, "%Y-%m-%d") if date else datetime.datetime.utcnow()
         except ValueError:
             d = datetime.datetime.utcnow()
         archive_link = f"https://apod.nasa.gov/apod/ap{d.strftime('%y%m%d')}.html"
 
-        # If API call failed
-        if not data:
-            content = f"⚠️ Could not fetch the APOD image. You can still view it here: {archive_link}"
-            if use_embeds:
-                embed = discord.Embed(
-                    title="Astronomy Picture of the Day",
-                    url=archive_link,
-                    description=content,
-                    color=discord.Color.red(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                await channel.send(content=f"<@&{ping_target}>" if ping_target else None, embed=embed)
-            else:
-                await channel.send(content=f"{f'<@&{ping_target}> ' if ping_target else ''}{content}")
-            return
-
-        # Handle video vs image
-        media_type = data.get("media_type")
         message_content = f"<@&{ping_target}> " if ping_target else ""
 
-        if media_type == "image":
+        # If API returns valid image/video
+        if data:
+            media_type = data.get("media_type")
+            if media_type == "image":
+                if use_embeds:
+                    embed = discord.Embed(
+                        title=data.get("title", "Astronomy Picture of the Day"),
+                        url=data.get("hdurl", data.get("url", archive_link)),
+                        color=discord.Color.blue(),
+                        timestamp=datetime.datetime.utcnow()
+                    )
+                    embed.set_image(url=data.get("url"))
+                    if include_info:
+                        embed.add_field(name="Explanation", value=data.get("explanation", "No info."), inline=False)
+                    embed.set_footer(text=f"Date: {data.get('date')}")
+                    await channel.send(content=message_content or None, embed=embed)
+                else:
+                    msg = f"**{data.get('title', 'Astronomy Picture of the Day')}** ({data.get('date')})\n"
+                    msg += data.get("url") + "\n"
+                    if include_info:
+                        msg += "\n" + data.get("explanation", "No info.")
+                    await channel.send(content=message_content + msg)
+                return
+            elif media_type == "video":
+                content = f"📹 Videos are not yet supported, go here to see today's video: {archive_link}"
+                if use_embeds:
+                    embed = discord.Embed(
+                        title=data.get("title", "Astronomy Picture of the Day"),
+                        url=archive_link,
+                        description=content,
+                        color=discord.Color.orange(),
+                        timestamp=datetime.datetime.utcnow()
+                    )
+                    if include_info:
+                        embed.add_field(name="Explanation", value=data.get("explanation", "No info."), inline=False)
+                    embed.set_footer(text=f"Date: {data.get('date')}")
+                    await channel.send(content=message_content or None, embed=embed)
+                else:
+                    await channel.send(content=message_content + content)
+                return
+
+        # If API failed or returned None, scrape HTML page
+        try:
+            async with self.session.get(archive_link) as resp:
+                if resp.status != 200:
+                    content = f"⚠️ Could not fetch APOD image. See here: {archive_link}"
+                    if use_embeds:
+                        embed = discord.Embed(title="Astronomy Picture of the Day", url=archive_link,
+                                              description=content, color=discord.Color.red(),
+                                              timestamp=datetime.datetime.utcnow())
+                        await channel.send(content=message_content or None, embed=embed)
+                    else:
+                        await channel.send(content=message_content + content)
+                    return
+
+                html = await resp.text()
+                soup = BeautifulSoup(html, "html.parser")
+                img_tag = soup.find("img")
+                if img_tag:
+                    img_src = "https://apod.nasa.gov/apod/" + img_tag.get("src")
+                    title_tag = soup.find("b")
+                    title = title_tag.text.strip() if title_tag else "Astronomy Picture of the Day"
+                    if use_embeds:
+                        embed = discord.Embed(title=title, url=archive_link,
+                                              color=discord.Color.blue(),
+                                              timestamp=datetime.datetime.utcnow())
+                        embed.set_image(url=img_src)
+                        await channel.send(content=message_content or None, embed=embed)
+                    else:
+                        await channel.send(content=message_content + f"**{title}**\n{img_src}")
+                else:
+                    content = f"📹 Videos are not yet supported, go here to see today's video: {archive_link}"
+                    if use_embeds:
+                        embed = discord.Embed(title="Astronomy Picture of the Day", url=archive_link,
+                                              description=content, color=discord.Color.orange(),
+                                              timestamp=datetime.datetime.utcnow())
+                        await channel.send(content=message_content or None, embed=embed)
+                    else:
+                        await channel.send(content=message_content + content)
+        except aiohttp.ClientError:
+            content = f"⚠️ Could not fetch APOD image. See here: {archive_link}"
             if use_embeds:
-                embed = discord.Embed(
-                    title=data.get("title", "Astronomy Picture of the Day"),
-                    url=data.get("hdurl", data.get("url", archive_link)),
-                    color=discord.Color.blue(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                embed.set_image(url=data.get("url"))
-                if include_info:
-                    embed.add_field(name="Explanation", value=data.get("explanation", "No info."), inline=False)
-                embed.set_footer(text=f"Date: {data.get('date')}")
-                await channel.send(content=message_content or None, embed=embed)
-            else:
-                msg = f"**{data.get('title', 'Astronomy Picture of the Day')}** ({data.get('date')})\n"
-                msg += data.get("url") + "\n"
-                if include_info:
-                    msg += "\n" + data.get("explanation", "No info.")
-                await channel.send(content=message_content + msg)
-        elif media_type == "video":
-            content = f"📹 Videos are not yet supported, go here to see today's video: {archive_link}"
-            if use_embeds:
-                embed = discord.Embed(
-                    title=data.get("title", "Astronomy Picture of the Day"),
-                    url=archive_link,
-                    description=content,
-                    color=discord.Color.orange(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                if include_info:
-                    embed.add_field(name="Explanation", value=data.get("explanation", "No info."), inline=False)
-                embed.set_footer(text=f"Date: {data.get('date')}")
+                embed = discord.Embed(title="Astronomy Picture of the Day", url=archive_link,
+                                      description=content, color=discord.Color.red(),
+                                      timestamp=datetime.datetime.utcnow())
                 await channel.send(content=message_content or None, embed=embed)
             else:
                 await channel.send(content=message_content + content)
-        else:
-            # Unknown media type
-            content = f"⚠️ APOD returned unsupported media. View here: {archive_link}"
-            if use_embeds:
-                embed = discord.Embed(
-                    title="Astronomy Picture of the Day",
-                    url=archive_link,
-                    description=content,
-                    color=discord.Color.red(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                await channel.send(content=f"<@&{ping_target}>" if ping_target else None, embed=embed)
-            else:
-                await channel.send(content=f"{f'<@&{ping_target}> ' if ping_target else ''}{content}")
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
