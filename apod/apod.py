@@ -16,15 +16,15 @@ class APOD(commands.Cog):
 
         default_guild = {
             "channel_id": None,
-            "post_time": "09:00",  # Default UTC time
+            "post_time": "09:00",
             "include_info": True,
-            "api_key": None,  # User-configurable NASA API key
-            "ping_roles": [],  # List of role IDs to ping on APOD
+            "api_key": None,
+            "ping_roles": [],
         }
 
         self.config.register_guild(**default_guild)
         self.session = aiohttp.ClientSession()
-        self.guild_tasks = {}  # guild_id -> task
+        self.guild_tasks = {}
 
     def cog_unload(self):
         for task in self.guild_tasks.values():
@@ -54,48 +54,62 @@ class APOD(commands.Cog):
             await channel.send("⚠️ Could not fetch the APOD image.")
             return
 
-        # Prepare ping roles
         role_ids = await self.config.guild(channel.guild).ping_roles()
         roles_to_ping = [channel.guild.get_role(rid) for rid in role_ids if channel.guild.get_role(rid)]
         ping_text = humanize_list([r.mention for r in roles_to_ping]) if roles_to_ping else ""
 
-        # Redbot official embed color
-        embed = discord.Embed(
-            title=data.get("title", "Astronomy Picture of the Day"),
-            url=data.get("hdurl", data.get("url")),
-            timestamp=datetime.datetime.utcnow(),
-            color=await self.bot.get_embed_color(channel)
-        )
+        explanation = data.get("explanation", "No info.")
+        if len(explanation) > 1024:
+            explanation = explanation[:1021] + "…"
 
-        if data.get("media_type") == "image":
-            embed.set_image(url=data.get("url"))
-        else:
-            # Link to APOD archive for the date
-            date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
-            y, m, d = date_str.split("-")
-            embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
+        # Check if the channel allows embeds
+        can_embed = channel.permissions_for(channel.guild.me).embed_links
 
-        if include_info:
-            explanation = data.get("explanation", "No info.")
-            if len(explanation) > 1024:
-                explanation = explanation[:1021] + "…"  # truncate to 1024 chars
-            embed.add_field(
-                name="Explanation",
-                value=explanation,
-                inline=False,
+        if can_embed:
+            embed = discord.Embed(
+                title=data.get("title", "Astronomy Picture of the Day"),
+                timestamp=datetime.datetime.utcnow(),
+                color=await self.bot.get_embed_color(channel)
             )
 
-        embed.set_footer(text=f"Date: {data.get('date')}")
+            if data.get("media_type") == "image":
+                embed.set_image(url=data.get("url"))
+            else:
+                date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
+                y, m, d = date_str.split("-")
+                embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
 
-        if ping_text:
-            await channel.send(ping_text, embed=embed)
+            if include_info:
+                embed.add_field(name="Explanation", value=explanation, inline=False)
+
+            embed.set_footer(text=f"Date: {data.get('date')}")
+            if ping_text:
+                await channel.send(ping_text, embed=embed)
+            else:
+                await channel.send(embed=embed)
+
         else:
-            await channel.send(embed=embed)
+            # Fallback for channels without embed permission
+            msg_content = f"**{data.get('title', 'Astronomy Picture of the Day')}**\n"
+            if data.get("media_type") == "image":
+                msg_content += f"{data.get('url')}\n"
+            else:
+                date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
+                y, m, d = date_str.split("-")
+                msg_content += f"📺 This is a video! View it here: https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html\n"
+
+            if include_info:
+                msg_content += f"\n{explanation}\n"
+            msg_content += f"\nDate: {data.get('date')}"
+
+            if ping_text:
+                await channel.send(f"{ping_text}\n{msg_content}")
+            else:
+                await channel.send(msg_content)
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
-        """Get the Astronomy Picture of the Day.
-        Optionally provide a date in DD/MM/YYYY format."""
+        """Get the Astronomy Picture of the Day. Optionally provide DD/MM/YYYY"""
         if date:
             try:
                 parsed = datetime.datetime.strptime(date, "%d/%m/%Y")
@@ -120,8 +134,8 @@ class APOD(commands.Cog):
             ping_roles = await self.config.guild(ctx.guild).ping_roles()
             roles = [ctx.guild.get_role(rid) for rid in ping_roles if ctx.guild.get_role(rid)]
             roles_display = humanize_list([r.name for r in roles]) if roles else "None"
-
             channel = ctx.guild.get_channel(channel_id) if channel_id else None
+
             msg = (
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
@@ -134,44 +148,43 @@ class APOD(commands.Cog):
 
     @apodset.command()
     async def channel(self, ctx, channel: discord.TextChannel):
-        """Set the channel where daily APOD posts will appear."""
+        """Set the channel for daily APOD posts."""
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
         await ctx.send(f"✅ APOD channel set to {channel.mention}")
         await self.restart_guild_task(ctx.guild)
 
     @apodset.command()
     async def time(self, ctx, time: str):
-        """Set the UTC time for daily APOD posts. Format: HH:MM"""
+        """Set UTC time for daily APOD posts. Format HH:MM"""
         try:
             datetime.datetime.strptime(time, "%H:%M")
         except ValueError:
-            await ctx.send("❌ Invalid time format. Use HH:MM (24-hour, UTC).")
+            await ctx.send("❌ Invalid time format. Use HH:MM")
             return
         await self.config.guild(ctx.guild).post_time.set(time)
-        await ctx.send(f"✅ APOD post time set to {time} UTC.")
         await self.restart_guild_task(ctx.guild)
+        await ctx.send(f"✅ APOD post time set to {time} UTC.")
 
     @apodset.command()
     async def includeinfo(self, ctx, value: bool):
-        """Enable or disable including the APOD explanation text."""
+        """Enable/disable APOD explanation text."""
         await self.config.guild(ctx.guild).include_info.set(value)
         await ctx.send(f"✅ Include info set to {value}.")
 
     @apodset.command()
     async def apikey(self, ctx, key: str):
-        """Set your NASA API key for APOD requests."""
+        """Set NASA API key."""
         await self.config.guild(ctx.guild).api_key.set(key)
         await ctx.send("✅ NASA API key set successfully.")
 
     @apodset.command()
     async def pingroles(self, ctx, *roles: discord.Role):
-        """Set roles to ping when APOD is posted."""
+        """Set roles to ping on APOD."""
         role_ids = [r.id for r in roles]
         await self.config.guild(ctx.guild).ping_roles.set(role_ids)
         await ctx.send(f"✅ Ping roles set to: {humanize_list([r.mention for r in roles])}")
 
     async def restart_guild_task(self, guild: discord.Guild):
-        """Stop and restart a guild's daily task with the new settings."""
         task = self.guild_tasks.get(guild.id)
         if task:
             task.cancel()
