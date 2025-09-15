@@ -54,58 +54,43 @@ class APOD(commands.Cog):
             await channel.send("⚠️ Could not fetch the APOD image.")
             return
 
+        # Ping roles
         role_ids = await self.config.guild(channel.guild).ping_roles()
         roles_to_ping = [channel.guild.get_role(rid) for rid in role_ids if channel.guild.get_role(rid)]
         ping_text = humanize_list([r.mention for r in roles_to_ping]) if roles_to_ping else ""
 
+        # Truncate explanation
         explanation = data.get("explanation", "No info.")
         if len(explanation) > 1024:
             explanation = explanation[:1021] + "…"
 
-        # Check if the channel allows embeds
-        can_embed = channel.permissions_for(channel.guild.me).embed_links
+        # Build embed (text only, no image)
+        embed = discord.Embed(
+            title=data.get("title", "Astronomy Picture of the Day"),
+            timestamp=datetime.datetime.utcnow(),
+            color=await self.bot.get_embed_color(channel)
+        )
 
-        if can_embed:
-            embed = discord.Embed(
-                title=data.get("title", "Astronomy Picture of the Day"),
-                timestamp=datetime.datetime.utcnow(),
-                color=await self.bot.get_embed_color(channel)
-            )
+        if data.get("media_type") != "image":
+            # Video link
+            date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
+            y, m, d = date_str.split("-")
+            embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
 
-            if data.get("media_type") == "image":
-                embed.set_image(url=data.get("url"))
-            else:
-                date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
-                y, m, d = date_str.split("-")
-                embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
+        if include_info:
+            embed.add_field(name="Explanation", value=explanation, inline=False)
 
-            if include_info:
-                embed.add_field(name="Explanation", value=explanation, inline=False)
+        embed.set_footer(text=f"Date: {data.get('date')}")
 
-            embed.set_footer(text=f"Date: {data.get('date')}")
-            if ping_text:
-                await channel.send(ping_text, embed=embed)
-            else:
-                await channel.send(embed=embed)
-
+        # Send embed (with ping roles if any)
+        if ping_text:
+            await channel.send(ping_text, embed=embed)
         else:
-            # Fallback for channels without embed permission
-            msg_content = f"**{data.get('title', 'Astronomy Picture of the Day')}**\n"
-            if data.get("media_type") == "image":
-                msg_content += f"{data.get('url')}\n"
-            else:
-                date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
-                y, m, d = date_str.split("-")
-                msg_content += f"📺 This is a video! View it here: https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html\n"
+            await channel.send(embed=embed)
 
-            if include_info:
-                msg_content += f"\n{explanation}\n"
-            msg_content += f"\nDate: {data.get('date')}"
-
-            if ping_text:
-                await channel.send(f"{ping_text}\n{msg_content}")
-            else:
-                await channel.send(msg_content)
+        # Send image separately if it's an image
+        if data.get("media_type") == "image":
+            await channel.send(data.get("url"))
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
