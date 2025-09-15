@@ -5,7 +5,7 @@ import aiohttp
 import asyncio
 import datetime
 from redbot.core.utils.chat_formatting import humanize_list
-from redbot.core.utils import AsyncIterables
+
 
 
 class APOD(commands.Cog):
