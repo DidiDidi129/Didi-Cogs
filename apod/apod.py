@@ -45,7 +45,7 @@ class APOD(commands.Cog):
                 return None
             return await resp.json()
 
-        async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_target=None):
+    async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_target=None):
         # Try fetching API data
         data = await self.fetch_apod(date)
 
@@ -105,7 +105,6 @@ class APOD(commands.Cog):
             if include_info:
                 msg += "\n" + data.get("explanation", "No info.")
             await channel.send(content=(message_content or "") + msg)
-
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
