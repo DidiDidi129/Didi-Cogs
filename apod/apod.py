@@ -49,16 +49,25 @@ class APOD(commands.Cog):
                 return None
             return await resp.json()
 
-    async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True):
+    async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_roles: bool = False):
+        """
+        Send the APOD to a channel.
+        ping_roles: only True for scheduled daily posts, False for manual commands.
+        """
         data = await self.fetch_apod(date, guild=channel.guild)
         if not data:
             await channel.send("⚠️ Could not fetch the APOD image.")
             return
 
-        # Ping roles
-        role_ids = await self.config.guild(channel.guild).ping_roles()
-        roles_to_ping = [channel.guild.get_role(rid) for rid in role_ids if channel.guild.get_role(rid)]
-        ping_text = humanize_list([r.mention for r in roles_to_ping]) if roles_to_ping else ""
+        # Prepare ping roles only if ping_roles=True
+        ping_text = ""
+        allowed_mentions = discord.AllowedMentions.none()
+        if ping_roles:
+            role_ids = await self.config.guild(channel.guild).ping_roles()
+            roles_to_ping = [channel.guild.get_role(rid) for rid in role_ids if channel.guild.get_role(rid)]
+            if roles_to_ping:
+                ping_text = humanize_list([r.mention for r in roles_to_ping])
+                allowed_mentions = discord.AllowedMentions(roles=True)  # enable actual ping
 
         # Truncate explanation
         explanation = data.get("explanation", "No info.")
@@ -82,13 +91,13 @@ class APOD(commands.Cog):
 
         embed.set_footer(text=f"Date: {data.get('date')}")
 
-        # Send embed (with ping roles if any)
+        # Send embed (with ping roles if scheduled)
         if ping_text:
-            await channel.send(ping_text, embed=embed)
+            await channel.send(ping_text, embed=embed, allowed_mentions=allowed_mentions)
         else:
             await channel.send(embed=embed)
 
-        # If it's an image, download and send as attachment for full preview
+        # Send image separately if it's an image
         if data.get("media_type") == "image":
             try:
                 async with self.session.get(data.get("url")) as resp:
@@ -97,7 +106,6 @@ class APOD(commands.Cog):
                         file = discord.File(io.BytesIO(img_bytes), filename="apod.jpg")
                         await channel.send(file=file)
             except Exception:
-                # fallback to URL if download fails
                 await channel.send(data.get("url"))
 
     @commands.command()
@@ -113,7 +121,8 @@ class APOD(commands.Cog):
         else:
             date_str = None
 
-        await self.send_apod(ctx.channel, date_str, include_info=True)
+        # Manual command: ping_roles=False
+        await self.send_apod(ctx.channel, date_str, include_info=True, ping_roles=False)
 
     @commands.group()
     @checks.admin_or_permissions(manage_guild=True)
@@ -198,7 +207,8 @@ class APOD(commands.Cog):
 
         @tasks.loop(time=[time_obj])
         async def guild_task():
-            await self.send_apod(channel, None, include_info)
+            # Scheduled posts: ping_roles=True
+            await self.send_apod(channel, None, include_info, ping_roles=True)
 
         guild_task.start()
         self.guild_tasks[guild.id] = guild_task
