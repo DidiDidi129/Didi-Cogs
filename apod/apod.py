@@ -17,6 +17,7 @@ class APOD(commands.Cog):
             "channel_id": None,
             "post_time": "09:00",  # Default UTC time
             "include_info": True,
+            "api_key": None,  # User-configurable NASA API key
         }
 
         self.config.register_guild(**default_guild)
@@ -28,9 +29,15 @@ class APOD(commands.Cog):
             task.cancel()
         asyncio.create_task(self.session.close())
 
-    async def fetch_apod(self, date=None):
+    async def fetch_apod(self, date=None, guild=None):
         base_url = "https://api.nasa.gov/planetary/apod"
-        params = {"api_key": "DEMO_KEY"}  # replace with real key
+        key = None
+        if guild:
+            key = await self.config.guild(guild).api_key()
+        if not key:
+            key = "DEMO_KEY"  # fallback
+
+        params = {"api_key": key}
         if date:
             params["date"] = date
 
@@ -40,7 +47,7 @@ class APOD(commands.Cog):
             return await resp.json()
 
     async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True):
-        data = await self.fetch_apod(date)
+        data = await self.fetch_apod(date, guild=channel.guild)
         if not data:
             await channel.send("⚠️ Could not fetch the APOD image.")
             return
@@ -91,13 +98,15 @@ class APOD(commands.Cog):
             channel_id = await self.config.guild(ctx.guild).channel_id()
             post_time = await self.config.guild(ctx.guild).post_time()
             include_info = await self.config.guild(ctx.guild).include_info()
+            api_key = await self.config.guild(ctx.guild).api_key()
             channel = ctx.guild.get_channel(channel_id) if channel_id else None
 
             msg = (
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
                 f"Post Time (UTC): {post_time}\n"
-                f"Include Info: {include_info}"
+                f"Include Info: {include_info}\n"
+                f"API Key: {'Set' if api_key else 'Not set'}"
             )
             await ctx.send(msg)
 
@@ -125,6 +134,12 @@ class APOD(commands.Cog):
         """Enable or disable including the APOD explanation text."""
         await self.config.guild(ctx.guild).include_info.set(value)
         await ctx.send(f"✅ Include info set to {value}.")
+
+    @apodset.command()
+    async def apikey(self, ctx, key: str):
+        """Set your NASA API key for APOD requests."""
+        await self.config.guild(ctx.guild).api_key.set(key)
+        await ctx.send("✅ NASA API key set successfully.")
 
     async def restart_guild_task(self, guild: discord.Guild):
         """Stop and restart a guild's daily task with the new settings."""
