@@ -36,7 +36,7 @@ class APOD(commands.Cog):
 
     async def fetch_apod(self, date=None):
         base_url = "https://api.nasa.gov/planetary/apod"
-        params = {"api_key": "DEMO_KEY"}  # replace with real key
+        params = {"api_key": "DEMO_KEY"}  # replace with your real NASA key
         if date:
             params["date"] = date
 
@@ -53,14 +53,14 @@ class APOD(commands.Cog):
 
         use_embeds = await self.config.use_embeds()
 
-        # Format APOD archive URL for this date
+        # Format APOD archive URL
         apod_date = data.get("date")
         archive_link = None
         if apod_date:
             d = datetime.datetime.strptime(apod_date, "%Y-%m-%d")
             archive_link = f"https://apod.nasa.gov/apod/ap{d.strftime('%y%m%d')}.html"
 
-        # Build the message
+        # Message prefix if ping is set
         message_content = ""
         if ping_target:
             message_content += f"<@&{ping_target}> " if channel.guild.get_role(ping_target) else f"<@{ping_target}> "
@@ -88,7 +88,6 @@ class APOD(commands.Cog):
             embed.set_footer(text=f"Date: {data.get('date')}")
             await channel.send(content=message_content or None, embed=embed)
         else:
-            # Plain text fallback
             msg = f"**{data.get('title', 'Astronomy Picture of the Day')}** ({data.get('date')})\n"
             if data.get("media_type") == "image":
                 msg += data.get("url") + "\n"
@@ -104,11 +103,17 @@ class APOD(commands.Cog):
         Optionally provide a date in DD/MM/YYYY format."""
         if date:
             try:
-                parsed = datetime.datetime.strptime(date, "%d/%m/%Y")
-                date_str = parsed.strftime("%Y-%m-%d")
+                parsed = datetime.datetime.strptime(date, "%d/%m/%Y").date()
             except ValueError:
-                await ctx.send("❌ Invalid date format. Use DD/MM/YYYY.")
+                await ctx.send("❌ Invalid date format. Use **DD/MM/YYYY**.")
                 return
+
+            today = datetime.date.today()
+            if parsed > today:
+                await ctx.send("❌ That date is in the future. Please pick today or earlier.")
+                return
+
+            date_str = parsed.strftime("%Y-%m-%d")
         else:
             date_str = None
 
@@ -135,12 +140,15 @@ class APOD(commands.Cog):
             elif user:
                 ping_display = user.mention
 
+            use_embeds = await self.config.use_embeds()
+
             msg = (
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
                 f"Post Time (UTC): {post_time}\n"
                 f"Include Info: {include_info}\n"
-                f"Ping Target: {ping_display or 'None'}"
+                f"Ping Target: {ping_display or 'None'}\n"
+                f"Use Embeds (global): {use_embeds}"
             )
             await ctx.send(msg)
 
@@ -179,14 +187,10 @@ class APOD(commands.Cog):
             await self.config.guild(ctx.guild).ping_target.clear()
             await ctx.send("✅ Cleared APOD ping target.")
 
-    @commands.group()
+    @apodset.command()
     @checks.is_owner()
-    async def apodowner(self, ctx):
-        """Owner-only APOD settings."""
-
-    @apodowner.command()
     async def embeds(self, ctx, value: bool):
-        """Enable or disable embeds globally."""
+        """Enable or disable embeds globally (bot owner only)."""
         await self.config.use_embeds.set(value)
         await ctx.send(f"✅ Embeds {'enabled' if value else 'disabled'} globally.")
 
