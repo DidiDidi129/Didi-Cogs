@@ -7,7 +7,6 @@ import datetime
 from redbot.core.utils.chat_formatting import humanize_list
 
 
-
 class APOD(commands.Cog):
     """NASA Astronomy Picture of the Day"""
 
@@ -73,13 +72,16 @@ class APOD(commands.Cog):
         else:
             # Link to APOD archive for the date
             date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
-            embed.description = f"📺 This is a video! [Click here to view it on APOD](" \
-                                f"https://apod.nasa.gov/apod/ap{date_str.replace('-', '')[2:]}.html)"
+            y, m, d = date_str.split("-")
+            embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
 
         if include_info:
+            explanation = data.get("explanation", "No info.")
+            if len(explanation) > 1024:
+                explanation = explanation[:1021] + "…"  # truncate to 1024 chars
             embed.add_field(
                 name="Explanation",
-                value=data.get("explanation", "No info."),
+                value=explanation,
                 inline=False,
             )
 
