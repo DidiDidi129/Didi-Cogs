@@ -4,6 +4,7 @@ from discord.ext import tasks
 import aiohttp
 import asyncio
 import datetime
+import io
 from redbot.core.utils.chat_formatting import humanize_list
 
 
@@ -64,7 +65,7 @@ class APOD(commands.Cog):
         if len(explanation) > 1024:
             explanation = explanation[:1021] + "…"
 
-        # Build embed (text only, no image)
+        # Build embed (text info)
         embed = discord.Embed(
             title=data.get("title", "Astronomy Picture of the Day"),
             timestamp=datetime.datetime.utcnow(),
@@ -72,7 +73,6 @@ class APOD(commands.Cog):
         )
 
         if data.get("media_type") != "image":
-            # Video link
             date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
             y, m, d = date_str.split("-")
             embed.description = f"📺 This is a video! [Click here to view it on APOD](https://apod.nasa.gov/apod/ap{y[2:]}{m}{d}.html)"
@@ -88,9 +88,17 @@ class APOD(commands.Cog):
         else:
             await channel.send(embed=embed)
 
-        # Send image separately if it's an image
+        # If it's an image, download and send as attachment for full preview
         if data.get("media_type") == "image":
-            await channel.send(data.get("url"))
+            try:
+                async with self.session.get(data.get("url")) as resp:
+                    if resp.status == 200:
+                        img_bytes = await resp.read()
+                        file = discord.File(io.BytesIO(img_bytes), filename="apod.jpg")
+                        await channel.send(file=file)
+            except Exception:
+                # fallback to URL if download fails
+                await channel.send(data.get("url"))
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
