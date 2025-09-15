@@ -7,7 +7,7 @@ import datetime
 
 
 class APOD(commands.Cog):
-    """NASA Astronomy Picture of the Day (API only, using Redbot API key)"""
+    """NASA Astronomy Picture of the Day (API only)"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -22,6 +22,7 @@ class APOD(commands.Cog):
 
         default_global = {
             "use_embeds": True,
+            "api_key": "DEMO_KEY"  # replace with your own API key using apodset apikey
         }
 
         self.config.register_guild(**default_guild)
@@ -35,15 +36,7 @@ class APOD(commands.Cog):
         asyncio.create_task(self.session.close())
 
     async def fetch_apod(self, date=None):
-        # Get NASA API key from Redbot's global API tokens
-        try:
-            api_tokens = await self.bot.get_shared_api_tokens("nasa")
-            key = api_tokens.get("api_key") if api_tokens else None
-            if not key:
-                key = "DEMO_KEY"
-        except Exception:
-            key = "DEMO_KEY"
-
+        key = await self.config.api_key()
         url = "https://api.nasa.gov/planetary/apod"
         params = {"api_key": key}
         if date:
@@ -150,8 +143,7 @@ class APOD(commands.Cog):
             user = ctx.guild.get_member(ping_target) if ping_target else None
             ping_display = role.mention if role else user.mention if user else "None"
             use_embeds = await self.config.use_embeds()
-            api_tokens = await self.bot.get_shared_api_tokens("nasa")
-            api_display = "Set" if api_tokens and api_tokens.get("api_key") else "Not Set (Using DEMO_KEY)"
+            api_key = await self.config.api_key()
             await ctx.send(
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
@@ -159,7 +151,7 @@ class APOD(commands.Cog):
                 f"Include Info: {include_info}\n"
                 f"Ping Target: {ping_display}\n"
                 f"Use Embeds (owner only): {use_embeds}\n"
-                f"API Key: {api_display}"
+                f"API Key: {'Set' if api_key != 'DEMO_KEY' else 'Not Set (Using DEMO_KEY)'}"
             )
 
     @apodset.command()
@@ -198,6 +190,13 @@ class APOD(commands.Cog):
     async def embeds(self, ctx, value: bool):
         await self.config.use_embeds.set(value)
         await ctx.send(f"✅ Embeds {'enabled' if value else 'disabled'} globally.")
+
+    @apodset.command()
+    @checks.is_owner()
+    async def apikey(self, ctx, key: str):
+        """Set your personal NASA API key for APOD."""
+        await self.config.api_key.set(key)
+        await ctx.send("✅ NASA API key updated. The bot will now use this key instead of DEMO_KEY.")
 
     async def restart_guild_task(self, guild: discord.Guild):
         task = self.guild_tasks.get(guild.id)
