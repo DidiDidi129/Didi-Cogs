@@ -4,6 +4,8 @@ from discord.ext import tasks
 import aiohttp
 import asyncio
 import datetime
+from redbot.core.utils.chat_formatting import humanize_list
+from redbot.core.utils import AsyncIterables
 
 
 class APOD(commands.Cog):
@@ -18,6 +20,7 @@ class APOD(commands.Cog):
             "post_time": "09:00",  # Default UTC time
             "include_info": True,
             "api_key": None,  # User-configurable NASA API key
+            "ping_roles": [],  # List of role IDs to ping on APOD
         }
 
         self.config.register_guild(**default_guild)
@@ -35,7 +38,7 @@ class APOD(commands.Cog):
         if guild:
             key = await self.config.guild(guild).api_key()
         if not key:
-            key = "DEMO_KEY"  # fallback
+            key = "DEMO_KEY"
 
         params = {"api_key": key}
         if date:
@@ -52,17 +55,26 @@ class APOD(commands.Cog):
             await channel.send("⚠️ Could not fetch the APOD image.")
             return
 
+        # Prepare ping roles
+        role_ids = await self.config.guild(channel.guild).ping_roles()
+        roles_to_ping = [channel.guild.get_role(rid) for rid in role_ids if channel.guild.get_role(rid)]
+        ping_text = humanize_list([r.mention for r in roles_to_ping]) if roles_to_ping else ""
+
+        # Redbot official embed color
         embed = discord.Embed(
             title=data.get("title", "Astronomy Picture of the Day"),
             url=data.get("hdurl", data.get("url")),
             timestamp=datetime.datetime.utcnow(),
-            color=discord.Color.blue(),
+            color=await self.bot.get_embed_color(channel)
         )
 
         if data.get("media_type") == "image":
             embed.set_image(url=data.get("url"))
         else:
-            embed.description = f"[Click here to view video]({data.get('url')})"
+            # Link to APOD archive for the date
+            date_str = data.get("date", datetime.datetime.utcnow().strftime("%Y-%m-%d"))
+            embed.description = f"📺 This is a video! [Click here to view it on APOD](" \
+                                f"https://apod.nasa.gov/apod/ap{date_str.replace('-', '')[2:]}.html)"
 
         if include_info:
             embed.add_field(
@@ -72,7 +84,11 @@ class APOD(commands.Cog):
             )
 
         embed.set_footer(text=f"Date: {data.get('date')}")
-        await channel.send(embed=embed)
+
+        if ping_text:
+            await channel.send(ping_text, embed=embed)
+        else:
+            await channel.send(embed=embed)
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
@@ -99,14 +115,18 @@ class APOD(commands.Cog):
             post_time = await self.config.guild(ctx.guild).post_time()
             include_info = await self.config.guild(ctx.guild).include_info()
             api_key = await self.config.guild(ctx.guild).api_key()
-            channel = ctx.guild.get_channel(channel_id) if channel_id else None
+            ping_roles = await self.config.guild(ctx.guild).ping_roles()
+            roles = [ctx.guild.get_role(rid) for rid in ping_roles if ctx.guild.get_role(rid)]
+            roles_display = humanize_list([r.name for r in roles]) if roles else "None"
 
+            channel = ctx.guild.get_channel(channel_id) if channel_id else None
             msg = (
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
                 f"Post Time (UTC): {post_time}\n"
                 f"Include Info: {include_info}\n"
-                f"API Key: {'Set' if api_key else 'Not set'}"
+                f"API Key: {'Set' if api_key else 'Not set'}\n"
+                f"Ping Roles: {roles_display}"
             )
             await ctx.send(msg)
 
@@ -141,14 +161,19 @@ class APOD(commands.Cog):
         await self.config.guild(ctx.guild).api_key.set(key)
         await ctx.send("✅ NASA API key set successfully.")
 
+    @apodset.command()
+    async def pingroles(self, ctx, *roles: discord.Role):
+        """Set roles to ping when APOD is posted."""
+        role_ids = [r.id for r in roles]
+        await self.config.guild(ctx.guild).ping_roles.set(role_ids)
+        await ctx.send(f"✅ Ping roles set to: {humanize_list([r.mention for r in roles])}")
+
     async def restart_guild_task(self, guild: discord.Guild):
         """Stop and restart a guild's daily task with the new settings."""
-        # cancel old
         task = self.guild_tasks.get(guild.id)
         if task:
             task.cancel()
 
-        # get new settings
         channel_id = await self.config.guild(guild).channel_id()
         post_time = await self.config.guild(guild).post_time()
         include_info = await self.config.guild(guild).include_info()
@@ -176,6 +201,5 @@ class APOD(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # Start tasks for all guilds on startup
         for guild in self.bot.guilds:
             await self.restart_guild_task(guild)
