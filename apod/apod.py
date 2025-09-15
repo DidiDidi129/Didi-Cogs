@@ -22,6 +22,7 @@ class APOD(commands.Cog):
 
         default_global = {
             "use_embeds": True,
+            "api_key": "DEMO_KEY"  # default, replace with your own
         }
 
         self.config.register_guild(**default_guild)
@@ -36,20 +37,23 @@ class APOD(commands.Cog):
 
     async def fetch_apod(self, date=None):
         base_url = "https://api.nasa.gov/planetary/apod"
-        params = {"api_key": "DEMO_KEY"}  # replace with your real NASA key
+        key = await self.config.api_key()
+        params = {"api_key": key}
         if date:
             params["date"] = date
-
-        async with self.session.get(base_url, params=params) as resp:
-            if resp.status != 200:
-                return None
-            return await resp.json()
+        try:
+            async with self.session.get(base_url, params=params) as resp:
+                if resp.status != 200:
+                    return None
+                return await resp.json()
+        except aiohttp.ClientError:
+            return None
 
     async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_target=None):
-        # Try fetching API data
+        use_embeds = await self.config.use_embeds()
         data = await self.fetch_apod(date)
 
-        # Build the APOD archive link (always works)
+        # Determine the date to build the APOD archive link
         if date:
             try:
                 d = datetime.datetime.strptime(date, "%Y-%m-%d")
@@ -59,27 +63,32 @@ class APOD(commands.Cog):
             d = datetime.datetime.utcnow()
         archive_link = f"https://apod.nasa.gov/apod/ap{d.strftime('%y%m%d')}.html"
 
-        # If API completely failed
+        # If API failed, send fallback
         if not data:
-            await channel.send(
-                f"⚠️ Could not fetch the APOD image. "
-                f"You can still view it here: {archive_link}"
-            )
+            content = f"⚠️ Could not fetch the APOD image. You can still view it here: {archive_link}"
+            if use_embeds:
+                embed = discord.Embed(
+                    title="Astronomy Picture of the Day",
+                    url=archive_link,
+                    description=content,
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.utcnow()
+                )
+                await channel.send(content=f"<@&{ping_target}>" if ping_target else None, embed=embed)
+            else:
+                await channel.send(content=f"{f'<@&{ping_target}> ' if ping_target else ''}{content}")
             return
 
-        use_embeds = await self.config.use_embeds()
+        # Build message
+        message_content = f"<@&{ping_target}> " if ping_target else ""
 
-        # Message prefix if ping is set
-        message_content = ""
-        if ping_target:
-            message_content += f"<@&{ping_target}> " if channel.guild.get_role(ping_target) else f"<@{ping_target}> "
-
+        # Use embed
         if use_embeds:
             embed = discord.Embed(
                 title=data.get("title", "Astronomy Picture of the Day"),
-                url=data.get("hdurl", data.get("url")),
-                timestamp=datetime.datetime.utcnow(),
+                url=data.get("hdurl", data.get("url", archive_link)),
                 color=discord.Color.blue(),
+                timestamp=datetime.datetime.utcnow()
             )
 
             if data.get("media_type") == "image":
@@ -91,7 +100,7 @@ class APOD(commands.Cog):
                 embed.add_field(
                     name="Explanation",
                     value=data.get("explanation", "No info."),
-                    inline=False,
+                    inline=False
                 )
 
             embed.set_footer(text=f"Date: {data.get('date')}")
@@ -104,7 +113,7 @@ class APOD(commands.Cog):
                 msg += f"Video detected, view it here: {archive_link}\n"
             if include_info:
                 msg += "\n" + data.get("explanation", "No info.")
-            await channel.send(content=(message_content or "") + msg)
+            await channel.send(content=message_content + msg)
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
@@ -114,11 +123,10 @@ class APOD(commands.Cog):
             try:
                 parsed = datetime.datetime.strptime(date, "%d/%m/%Y").date()
             except ValueError:
-                await ctx.send("❌ Invalid date format. Use **DD/MM/YYYY**.")
+                await ctx.send("❌ Invalid date format. Use DD/MM/YYYY.")
                 return
 
-            today = datetime.date.today()
-            if parsed > today:
+            if parsed > datetime.date.today():
                 await ctx.send("❌ That date is in the future. Please pick today or earlier.")
                 return
 
@@ -142,35 +150,29 @@ class APOD(commands.Cog):
             channel = ctx.guild.get_channel(channel_id) if channel_id else None
             role = ctx.guild.get_role(ping_target) if ping_target else None
             user = ctx.guild.get_member(ping_target) if ping_target else None
-
-            ping_display = None
-            if role:
-                ping_display = role.mention
-            elif user:
-                ping_display = user.mention
-
+            ping_display = role.mention if role else user.mention if user else "None"
             use_embeds = await self.config.use_embeds()
-
-            msg = (
+            api_key = await self.config.api_key()
+            await ctx.send(
                 f"**APOD Settings:**\n"
                 f"Channel: {channel.mention if channel else 'Not set'}\n"
                 f"Post Time (UTC): {post_time}\n"
                 f"Include Info: {include_info}\n"
-                f"Ping Target: {ping_display or 'None'}\n"
-                f"Use Embeds (global): {use_embeds}"
+                f"Ping Target: {ping_display}\n"
+                f"Use Embeds (global, owner only): {use_embeds}\n"
+                f"API Key: {'Set' if api_key else 'Not Set'}"
             )
-            await ctx.send(msg)
 
     @apodset.command()
     async def channel(self, ctx, channel: discord.TextChannel):
-        """Set the channel where daily APOD posts will appear."""
+        """Set the channel for daily APOD posts."""
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
         await ctx.send(f"✅ APOD channel set to {channel.mention}")
         await self.restart_guild_task(ctx.guild)
 
     @apodset.command()
     async def time(self, ctx, time: str):
-        """Set the UTC time for daily APOD posts. Format: HH:MM"""
+        """Set UTC time for daily posts (HH:MM)."""
         try:
             datetime.datetime.strptime(time, "%H:%M")
         except ValueError:
@@ -182,13 +184,13 @@ class APOD(commands.Cog):
 
     @apodset.command()
     async def includeinfo(self, ctx, value: bool):
-        """Enable or disable including the APOD explanation text."""
+        """Toggle including APOD explanation text."""
         await self.config.guild(ctx.guild).include_info.set(value)
         await ctx.send(f"✅ Include info set to {value}.")
 
     @apodset.command()
     async def ping(self, ctx, target: discord.Role | discord.Member | None):
-        """Set a role or user to ping when the APOD is posted. Leave blank to clear."""
+        """Set role/user to ping for daily APOD. Leave blank to clear."""
         if target:
             await self.config.guild(ctx.guild).ping_target.set(target.id)
             await ctx.send(f"✅ Will ping {target.mention} for daily APOD.")
@@ -199,12 +201,18 @@ class APOD(commands.Cog):
     @apodset.command()
     @checks.is_owner()
     async def embeds(self, ctx, value: bool):
-        """Enable or disable embeds globally (bot owner only)."""
+        """Enable/disable embeds globally (bot owner only)."""
         await self.config.use_embeds.set(value)
         await ctx.send(f"✅ Embeds {'enabled' if value else 'disabled'} globally.")
 
+    @apodset.command()
+    @checks.is_owner()
+    async def apikey(self, ctx, key: str):
+        """Set NASA API key (owner only)."""
+        await self.config.api_key.set(key)
+        await ctx.send("✅ API key updated.")
+
     async def restart_guild_task(self, guild: discord.Guild):
-        """Stop and restart a guild's daily task with the new settings."""
         task = self.guild_tasks.get(guild.id)
         if task:
             task.cancel()
