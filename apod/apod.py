@@ -45,20 +45,29 @@ class APOD(commands.Cog):
                 return None
             return await resp.json()
 
-    async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_target=None):
+        async def send_apod(self, channel: discord.TextChannel, date=None, include_info=True, ping_target=None):
+        # Try fetching API data
         data = await self.fetch_apod(date)
+
+        # Build the APOD archive link (always works)
+        if date:
+            try:
+                d = datetime.datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                d = datetime.datetime.utcnow()
+        else:
+            d = datetime.datetime.utcnow()
+        archive_link = f"https://apod.nasa.gov/apod/ap{d.strftime('%y%m%d')}.html"
+
+        # If API completely failed
         if not data:
-            await channel.send("⚠️ Could not fetch the APOD image.")
+            await channel.send(
+                f"⚠️ Could not fetch the APOD image. "
+                f"You can still view it here: {archive_link}"
+            )
             return
 
         use_embeds = await self.config.use_embeds()
-
-        # Format APOD archive URL
-        apod_date = data.get("date")
-        archive_link = None
-        if apod_date:
-            d = datetime.datetime.strptime(apod_date, "%Y-%m-%d")
-            archive_link = f"https://apod.nasa.gov/apod/ap{d.strftime('%y%m%d')}.html"
 
         # Message prefix if ping is set
         message_content = ""
@@ -96,6 +105,7 @@ class APOD(commands.Cog):
             if include_info:
                 msg += "\n" + data.get("explanation", "No info.")
             await channel.send(content=(message_content or "") + msg)
+
 
     @commands.command()
     async def apod(self, ctx, date: str = None):
