@@ -19,7 +19,7 @@ class Gemini(commands.Cog):
         }
         default_channel = {
             "history": [],
-            "system_prompt": "You are a friendly chatbot. You speak casually. You are a discord bot. You are good at helping people.",
+            "system_prompt": "You are an instance of Red-DiscordBot running in discord. You are friendly.",
             "always_respond": False,
             "use_history": True,
             "auto_delete_days": None,
@@ -27,7 +27,7 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, api_url: str, model: str, history: list):
+    async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
         """
         Call Gemini API with history.
         - If api_url points to Google → append /{model}:generateContent with ?key=
@@ -45,20 +45,23 @@ class Gemini(commands.Cog):
 
         headers = {"Content-Type": "application/json"}
 
-        # Convert history into Gemini format (avoid "assistant" role)
+        # Convert history into Gemini format
         contents = []
+
+        # Put system prompt as the very first user message if provided
+        if system_prompt:
+            contents.append({
+                "role": "user",
+                "parts": [{"text": system_prompt}]
+            })
+
         for entry in history:
             role = entry["role"]
-            if role == "system":
-                contents.append({
-                    "role": "system",
-                    "parts": [{"text": entry["content"]}]
-                })
-            else:  # all user + assistant messages → role "user"
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": entry["content"]}]
-                })
+            # Treat everything as user messages in Gemini’s format
+            contents.append({
+                "role": "user",
+                "parts": [{"text": entry["content"]}]
+            })
 
         payload = {"contents": contents}
         if "generativelanguage.googleapis.com" not in api_url:
@@ -175,13 +178,11 @@ class Gemini(commands.Cog):
             await self._handle_message(message.channel, message.author, message.content, reply_to=message)
             return
 
-        # Replying directly to bot
         if message.reference and (ref := message.reference.resolved) and isinstance(ref, discord.Message):
             if ref.author.id == self.bot.user.id:
                 await self._handle_reply_query(message.channel, message.author, ref, message.content, reply_to=message)
                 return
 
-        # Mention mode with optional context
         if self.bot.user.mention in message.content:
             respond_enabled = await self.config.guild(message.guild).respond_to_mentions()
             if not respond_enabled:
@@ -214,8 +215,6 @@ class Gemini(commands.Cog):
             return
 
         history = []
-        if system_prompt:
-            history.append({"role": "system", "content": system_prompt, "time": datetime.datetime.utcnow().isoformat()})
         if use_history:
             history.extend(await self.config.channel(channel).history() or [])
 
@@ -228,7 +227,7 @@ class Gemini(commands.Cog):
 
         try:
             async with channel.typing():
-                reply_text = await self.call_gemini(api_key, api_url, model, history)
+                reply_text = await self.call_gemini(api_key, api_url, model, history, system_prompt)
         except Exception as e:
             await reply_to.reply(f"❌ Unexpected error: ```{e}```")
             return
@@ -246,15 +245,12 @@ class Gemini(commands.Cog):
         system_prompt = await self.config.channel(channel).system_prompt()
 
         temp_history = []
-        if system_prompt:
-            temp_history.append({"role": "system", "content": system_prompt})
-
         temp_history.append({"role": "user", "content": referenced_message.content})
         temp_history.append({"role": "user", "content": query})
 
         try:
             async with channel.typing():
-                reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+                reply_text = await self.call_gemini(api_key, api_url, model, temp_history, system_prompt)
         except Exception as e:
             await reply_to.reply(f"❌ Unexpected error: ```{e}```")
             return
@@ -268,15 +264,12 @@ class Gemini(commands.Cog):
         system_prompt = await self.config.channel(channel.channel).system_prompt()
 
         temp_history = []
-        if system_prompt:
-            temp_history.append({"role": "system", "content": system_prompt})
-
         temp_history.append({"role": "user", "content": f"{referenced_message.author.display_name} said:\n{referenced_message.content}"})
         temp_history.append({"role": "user", "content": query})
 
         try:
             async with channel.typing():
-                reply_text = await self.call_gemini(api_key, api_url, model, temp_history)
+                reply_text = await self.call_gemini(api_key, api_url, model, temp_history, system_prompt)
         except Exception as e:
             await reply_to.reply(f"❌ Unexpected error: ```{e}```")
             return
