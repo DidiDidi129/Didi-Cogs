@@ -19,7 +19,7 @@ class Gemini(commands.Cog):
         }
         default_channel = {
             "history": [],
-            "system_prompt": "You are an instance of Red-DiscordBot running in discord. You are friendly.",
+            "system_prompt": "You are a discord bot.",
             "always_respond": False,
             "use_history": True,
             "auto_delete_days": None,
