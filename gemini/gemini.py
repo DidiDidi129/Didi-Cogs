@@ -1,5 +1,5 @@
 import discord
-from redbot.core import commands, Config
+from redbot.core import commands, Config, checks
 import aiohttp
 import datetime
 
@@ -19,13 +19,22 @@ class Gemini(commands.Cog):
         }
         default_channel = {
             "history": [],
-            "system_prompt": "You are a discord bot.",
+            "system_prompt": "You are an instance of Red-DiscordBot running in discord. You are friendly.",
             "always_respond": False,
             "use_history": True,
             "auto_delete_days": None,
         }
+        default_global = {
+            "blocked_users": []
+        }
+
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
+        self.config.register_global(**default_global)
+
+    async def is_blocked(self, user: discord.User) -> bool:
+        blocked = await self.config.blocked_users()
+        return user.id in blocked
 
     async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
         """
@@ -91,6 +100,54 @@ class Gemini(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
+    # --- Owner-only blocklist commands ---
+
+    @gemini.command(name="block")
+    @checks.is_owner()
+    async def block(self, ctx, user: discord.User):
+        """Block a user from using Gemini features."""
+        blocked = await self.config.blocked_users()
+        if user.id in blocked:
+            await ctx.reply(f"❌ {user.mention} is already blocked.")
+            return
+        blocked.append(user.id)
+        await self.config.blocked_users.set(blocked)
+        await ctx.reply(f"✅ {user.mention} has been blocked from using Gemini.")
+
+    @gemini.command(name="unblock")
+    @checks.is_owner()
+    async def unblock(self, ctx, user: discord.User):
+        """Unblock a user from using Gemini features."""
+        blocked = await self.config.blocked_users()
+        if user.id not in blocked:
+            await ctx.reply(f"❌ {user.mention} is not blocked.")
+            return
+        blocked.remove(user.id)
+        await self.config.blocked_users.set(blocked)
+        await ctx.reply(f"✅ {user.mention} has been unblocked.")
+
+    @gemini.command(name="blocklist")
+    @checks.is_owner()
+    async def blocklist(self, ctx):
+        """See the list of blocked users."""
+        blocked = await self.config.blocked_users()
+        if not blocked:
+            await ctx.reply("✅ No users are currently blocked.")
+            return
+
+        users = []
+        for uid in blocked:
+            user = self.bot.get_user(uid)
+            if user:
+                users.append(f"{user} (`{uid}`)")
+            else:
+                users.append(f"Unknown User (`{uid}`)")
+
+        msg = "🚫 Blocked Users:\n" + "\n".join(users)
+        await ctx.reply(msg)
+
+    # --- API setup commands ---
+
     @gemini.command()
     @commands.has_permissions(administrator=True)
     async def apiset(self, ctx, api_key: str):
@@ -142,6 +199,9 @@ class Gemini(commands.Cog):
 
     @gemini.command()
     async def chat(self, ctx, *, message: str):
+        if await self.is_blocked(ctx.author):
+            await ctx.reply("🚫 You are blocked from using Gemini.")
+            return
         await self._handle_message(ctx.channel, ctx.author, message, reply_to=ctx)
 
     @gemini.command(name="respond")
@@ -168,6 +228,8 @@ class Gemini(commands.Cog):
     @commands.Cog.listener("on_message_without_command")
     async def gemini_message_handler(self, message: discord.Message):
         if message.author.bot or not message.guild:
+            return
+        if await self.is_blocked(message.author):
             return
 
         if await self.config.channel(message.channel).always_respond():
@@ -257,7 +319,7 @@ class Gemini(commands.Cog):
         api_key = await self.config.guild(channel.guild).api_key()
         api_url = await self.config.guild(channel.guild).api_url()
         model = await self.config.guild(channel.guild).model()
-        system_prompt = await self.config.channel(channel.channel).system_prompt()
+        system_prompt = await self.config.channel(channel).system_prompt()
 
         temp_history = []
         temp_history.append({"role": "user", "content": f"{referenced_message.author.display_name} said:\n{referenced_message.content}"})
