@@ -27,12 +27,7 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-    async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
-        """
-        Call Gemini API with history.
-        - If api_url points to Google → append /{model}:generateContent with ?key=
-        - If custom API → send directly to base URL with "model" inside JSON
-        """
+        async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
         if not api_url.startswith("http://") and not api_url.startswith("https://"):
             api_url = "https://" + api_url.strip("/")
 
@@ -47,23 +42,19 @@ class Gemini(commands.Cog):
 
         # Convert history into Gemini format
         contents = []
-
-        # Put system prompt as the very first user message if provided
-        if system_prompt:
-            contents.append({
-                "role": "user",
-                "parts": [{"text": system_prompt}]
-            })
-
         for entry in history:
-            role = entry["role"]
-            # Treat everything as user messages in Gemini’s format
+            role = "user" if entry["role"] == "user" else "model"
             contents.append({
-                "role": "user",
+                "role": role,
                 "parts": [{"text": entry["content"]}]
             })
 
         payload = {"contents": contents}
+
+        # Put system prompt in system_instruction (official way)
+        if system_prompt:
+            payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
+
         if "generativelanguage.googleapis.com" not in api_url:
             payload["model"] = model
 
@@ -85,6 +76,7 @@ class Gemini(commands.Cog):
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError):
             return "⚠️ API returned an unexpected response."
+
 
     # ===============================
     # Commands
