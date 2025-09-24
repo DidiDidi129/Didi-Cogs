@@ -27,7 +27,12 @@ class Gemini(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_channel(**default_channel)
 
-        async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
+    async def call_gemini(self, api_key: str, api_url: str, model: str, history: list, system_prompt: str = None):
+        """
+        Call Gemini API with history.
+        - If api_url points to Google → append /{model}:generateContent with ?key=
+        - If custom API → send directly to base URL with "model" inside JSON
+        """
         if not api_url.startswith("http://") and not api_url.startswith("https://"):
             api_url = "https://" + api_url.strip("/")
 
@@ -76,7 +81,6 @@ class Gemini(commands.Cog):
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError):
             return "⚠️ API returned an unexpected response."
-
 
     # ===============================
     # Commands
