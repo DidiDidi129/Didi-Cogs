@@ -1,8 +1,11 @@
+import asyncio
+
 import discord
 from redbot.core import commands, Config
 
 
 ITEMS_PER_PAGE = 10
+LEADERBOARD_UPDATE_INTERVAL = 10  # seconds between persistent leaderboard edits
 
 
 class SaveView(discord.ui.View):
@@ -105,8 +108,16 @@ class Count(commands.Cog):
             "save_interval": 1000,
             "total_counts": 0,
             "funnyreactions": False,
+            "leaderboard_channel_id": None,
+            "leaderboard_message_id": None,
         }
         self.config.register_guild(**default_guild)
+        self._lb_update_tasks = {}  # guild_id -> asyncio.Task
+
+    def cog_unload(self):
+        for task in self._lb_update_tasks.values():
+            task.cancel()
+        self._lb_update_tasks.clear()
 
     # Number → keycap digit emoji mapping used for funny reactions
     _DIGIT_EMOJIS = {
@@ -193,6 +204,8 @@ class Count(commands.Cog):
             await self.config.guild(guild).current_count.set(0)
             await self.config.guild(guild).last_counter_id.set(None)
 
+        self._schedule_leaderboard_update(guild)
+
     # ---------------------------
     # Counting listener
     # ---------------------------
@@ -273,6 +286,8 @@ class Count(commands.Cog):
                 if reaction == emoji:
                     await message.add_reaction("✅")
 
+        self._schedule_leaderboard_update(message.guild)
+
     # ---------------------------
     # Leaderboard helpers
     # ---------------------------
@@ -301,6 +316,89 @@ class Count(commands.Cog):
                 lines.append(f"{rank:>3} {name:<{name_width}} {total:>5}")
             pages.append("```\n" + "\n".join(lines) + "\n```")
         return pages
+
+    # ---------------------------
+    # Persistent leaderboard
+    # ---------------------------
+    async def _build_persistent_leaderboard_embed(self, guild):
+        """Build a standalone embed for the persistent leaderboard."""
+        counts = await self.config.guild(guild).counts()
+        current_count = await self.config.guild(guild).current_count()
+        high_score = await self.config.guild(guild).high_score()
+        saves_enabled = await self.config.guild(guild).saves_enabled()
+        saves = await self.config.guild(guild).saves() if saves_enabled else 0
+
+        embed = discord.Embed(
+            title="Counting Leaderboard",
+            color=discord.Color.gold(),
+        )
+
+        if not counts:
+            embed.description = "No counting data yet!"
+        else:
+            sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+            pages = self._build_leaderboard_pages(sorted_counts, guild)
+
+            description = ""
+            if saves_enabled:
+                total_counts = await self.config.guild(guild).total_counts()
+                save_interval = await self.config.guild(guild).save_interval()
+                if save_interval > 0:
+                    counts_until_save = save_interval - (total_counts % save_interval)
+                    description += f"**{counts_until_save}** successful count(s) until next save!\n\n"
+
+            for page in pages:
+                if len(description) + len(page) < 4000:
+                    description += page + "\n"
+                else:
+                    break
+            embed.description = description.rstrip()
+
+        footer = f"Current Count: {current_count} | High Score: {high_score}"
+        if saves_enabled:
+            footer += f" | Saves: {saves}"
+        embed.set_footer(text=footer)
+        embed.timestamp = discord.utils.utcnow()
+        return embed
+
+    async def _update_persistent_leaderboard(self, guild):
+        """Edit the persistent leaderboard message with fresh data."""
+        lb_channel_id = await self.config.guild(guild).leaderboard_channel_id()
+        lb_message_id = await self.config.guild(guild).leaderboard_message_id()
+        if lb_channel_id is None or lb_message_id is None:
+            return
+
+        channel = guild.get_channel(lb_channel_id)
+        if channel is None:
+            return
+
+        try:
+            message = await channel.fetch_message(lb_message_id)
+        except (discord.NotFound, discord.HTTPException):
+            await self.config.guild(guild).leaderboard_channel_id.set(None)
+            await self.config.guild(guild).leaderboard_message_id.set(None)
+            return
+
+        embed = await self._build_persistent_leaderboard_embed(guild)
+        try:
+            await message.edit(embed=embed)
+        except discord.HTTPException:
+            pass
+
+    def _schedule_leaderboard_update(self, guild):
+        """Schedule a rate-limited update of the persistent leaderboard."""
+        guild_id = guild.id
+        if guild_id in self._lb_update_tasks and not self._lb_update_tasks[guild_id].done():
+            return  # update already pending
+
+        async def _delayed_update():
+            await asyncio.sleep(LEADERBOARD_UPDATE_INTERVAL)
+            try:
+                await self._update_persistent_leaderboard(guild)
+            finally:
+                self._lb_update_tasks.pop(guild_id, None)
+
+        self._lb_update_tasks[guild_id] = asyncio.create_task(_delayed_update())
 
     # ---------------------------
     # Leaderboard
@@ -443,5 +541,24 @@ class Count(commands.Cog):
         await self.config.guild(ctx.guild).funnyreactions.set(not current)
         state = "enabled" if not current else "disabled"
         await ctx.send(f"✅ Funny reactions have been **{state}**.")
+
+    @countset.command(name="leaderboard")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_leaderboard(self, ctx, channel: discord.TextChannel = None):
+        """Set a channel for the persistent auto-updating leaderboard. Use without a channel to remove it. (Admin only)"""
+        if channel is None:
+            await self.config.guild(ctx.guild).leaderboard_channel_id.set(None)
+            await self.config.guild(ctx.guild).leaderboard_message_id.set(None)
+            return await ctx.send("✅ Persistent leaderboard has been removed.")
+
+        embed = await self._build_persistent_leaderboard_embed(ctx.guild)
+        try:
+            msg = await channel.send(embed=embed)
+        except discord.HTTPException:
+            return await ctx.send("❌ I couldn't send a message in that channel. Check my permissions.")
+
+        await self.config.guild(ctx.guild).leaderboard_channel_id.set(channel.id)
+        await self.config.guild(ctx.guild).leaderboard_message_id.set(msg.id)
+        await self._react_confirm(ctx)
 
 
