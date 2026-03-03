@@ -16,16 +16,6 @@ A counting game cog for Red-DiscordBot. Users take turns counting in a designate
 - The bot reacts to valid counts with a configurable emoji (default: ✅).
 - The server high score is tracked automatically.
 
-### Math Expressions
-
-Users can count using basic math expressions instead of plain numbers. For example, if the expected count is **5**, any of these are valid:
-
-- `5`
-- `2+3`
-- `10/2`
-- `2+3=5` (equals sign form, can be disabled by an admin)
-
-Only the four basic operations (`+`, `-`, `*`, `/`) are allowed. Results must be whole numbers. Math expressions and equals signs can each be toggled by an admin.
 
 ### Saves
 
@@ -41,7 +31,6 @@ Saves are an optional feature (off by default) that lets a server recover from a
 
 ### Settings (Admin only)
 
-All settings commands confirm success by reacting to your message with the configured emoji.
 
 | Command | Description |
 | --- | --- |
@@ -52,5 +41,3 @@ All settings commands confirm success by reacting to your message with the confi
 | `[p]countset saves` | Toggle the saves feature on or off. Off by default. |
 | `[p]countset saveinterval <number>` | Set how many counts are needed to earn a save. Default is 1000. |
 | `[p]countset addsave [amount]` | Add one or more saves to the server. Defaults to 1. |
-| `[p]countset math` | Toggle whether math expressions can be used for counting. On by default. |
-| `[p]countset equals` | Toggle whether equals signs are allowed in math expressions. On by default. |
