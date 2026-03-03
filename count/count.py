@@ -342,6 +342,15 @@ class Count(commands.Cog):
         await self.config.guild(ctx.guild).last_counter_id.set(None)
         await self._react_confirm(ctx)
 
+    @countset.command(name="highscore")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_highscore(self, ctx, number: int):
+        """Overwrite the current high score with a specific number. (Admin only)"""
+        if number < 0:
+            return await ctx.send("❌ The high score cannot be set to a negative number.")
+        await self.config.guild(ctx.guild).high_score.set(number)
+        await self._react_confirm(ctx)
+
     @countset.command(name="emoji")
     @commands.admin_or_permissions(administrator=True)
     async def countset_emoji(self, ctx, emoji: str):
