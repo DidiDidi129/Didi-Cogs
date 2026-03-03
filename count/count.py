@@ -348,7 +348,7 @@ class Count(commands.Cog):
                     description += f"**{counts_until_save}** successful count(s) until next save!\n\n"
 
             for page in pages:
-                if len(description) + len(page) < 4000:
+                if len(description) + len(page) < 4096:
                     description += page + "\n"
                 else:
                     break
@@ -361,8 +361,12 @@ class Count(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    async def _update_persistent_leaderboard(self, guild):
+    async def _update_persistent_leaderboard(self, guild_id):
         """Edit the persistent leaderboard message with fresh data."""
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return
+
         lb_channel_id = await self.config.guild(guild).leaderboard_channel_id()
         lb_message_id = await self.config.guild(guild).leaderboard_message_id()
         if lb_channel_id is None or lb_message_id is None:
@@ -394,7 +398,7 @@ class Count(commands.Cog):
         async def _delayed_update():
             await asyncio.sleep(LEADERBOARD_UPDATE_INTERVAL)
             try:
-                await self._update_persistent_leaderboard(guild)
+                await self._update_persistent_leaderboard(guild_id)
             finally:
                 self._lb_update_tasks.pop(guild_id, None)
 
