@@ -347,11 +347,8 @@ class Count(commands.Cog):
                     counts_until_save = save_interval - (total_counts % save_interval)
                     description += f"**{counts_until_save}** successful count(s) until next save!\n\n"
 
-            for page in pages:
-                if len(description) + len(page) < 4096:
-                    description += page + "\n"
-                else:
-                    break
+            if pages:
+                description += pages[0]
             embed.description = description.rstrip()
 
         footer = f"Current Count: {current_count} | High Score: {high_score}"
