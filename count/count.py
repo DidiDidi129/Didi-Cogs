@@ -1,58 +1,8 @@
-import ast
-import operator
-
 import discord
 from redbot.core import commands, Config
 
 
 ITEMS_PER_PAGE = 10
-
-SAFE_OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-}
-
-
-def safe_eval_math(expr):
-    """Safely evaluate a basic math expression (+, -, *, / only).
-
-    Returns an int if the result is a whole number, otherwise ``None``.
-    """
-    try:
-        tree = ast.parse(expr.strip(), mode="eval")
-    except SyntaxError:
-        return None
-
-    def _eval(node):
-        if isinstance(node, ast.Expression):
-            return _eval(node.body)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        elif isinstance(node, ast.BinOp):
-            op_type = type(node.op)
-            if op_type not in SAFE_OPS:
-                raise ValueError
-            left = _eval(node.left)
-            right = _eval(node.right)
-            if op_type is ast.Div and right == 0:
-                raise ValueError
-            return SAFE_OPS[op_type](left, right)
-        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-            return -_eval(node.operand)
-        else:
-            raise ValueError
-
-    try:
-        result = _eval(tree)
-        if isinstance(result, float):
-            if result == int(result):
-                return int(result)
-            return None  # non-integer results are not valid for counting
-        return result
-    except (ValueError, ZeroDivisionError):
-        return None
 
 
 class SaveView(discord.ui.View):
@@ -148,46 +98,21 @@ class Count(commands.Cog):
             "saves_enabled": False,
             "saves": 0,
             "save_interval": 1000,
-            "math_enabled": True,
-            "equals_enabled": True,
         }
         self.config.register_guild(**default_guild)
 
     # ---------------------------
     # Helpers
     # ---------------------------
-    def _parse_number(self, content, math_enabled, equals_enabled):
+    def _parse_number(self, content):
         """Try to interpret *content* as the next count value.
 
-        Returns ``(int, is_math_expr)`` on success, ``(None, False)`` on failure.
+        Returns ``int`` on success, ``None`` on failure.
         """
-        # 1. Plain integer
         try:
-            return int(content), False
+            return int(content)
         except ValueError:
-            pass
-
-        if not math_enabled:
-            return None, False
-
-        # 2. Expression with '=' (e.g. "2+3=5")
-        if "=" in content:
-            if not equals_enabled:
-                return None, False
-            parts = content.split("=")
-            if len(parts) == 2:
-                expr_result = safe_eval_math(parts[0])
-                try:
-                    stated_result = int(parts[1].strip())
-                except ValueError:
-                    stated_result = None
-                if expr_result is not None and stated_result is not None and expr_result == stated_result:
-                    return stated_result, True
-            return None, False
-
-        # 3. Pure math expression (e.g. "2+3")
-        result = safe_eval_math(content)
-        return result, result is not None
+            return None
 
     async def _handle_break(self, message, reason):
         """Handle a count break, optionally offering a save."""
@@ -262,9 +187,7 @@ class Count(commands.Cog):
         expected = current_count + 1
 
         content = message.content.strip()
-        math_enabled = await self.config.guild(message.guild).math_enabled()
-        equals_enabled = await self.config.guild(message.guild).equals_enabled()
-        number, is_math = self._parse_number(content, math_enabled, equals_enabled)
+        number = self._parse_number(content)
 
         if number is None:
             await self._handle_break(message, "That's not a valid number!")
@@ -444,20 +367,4 @@ class Count(commands.Cog):
         await self.config.guild(ctx.guild).save_interval.set(number)
         await self._react_confirm(ctx)
 
-    @countset.command(name="math")
-    @commands.admin_or_permissions(administrator=True)
-    async def countset_math(self, ctx):
-        """Toggle whether math expressions can be used for counting. On by default. (Admin only)"""
-        current = await self.config.guild(ctx.guild).math_enabled()
-        await self.config.guild(ctx.guild).math_enabled.set(not current)
-        state = "enabled" if not current else "disabled"
-        await ctx.send(f"✅ Math expressions have been **{state}**.")
 
-    @countset.command(name="equals")
-    @commands.admin_or_permissions(administrator=True)
-    async def countset_equals(self, ctx):
-        """Toggle whether equals signs are allowed in math expressions. On by default. (Admin only)"""
-        current = await self.config.guild(ctx.guild).equals_enabled()
-        await self.config.guild(ctx.guild).equals_enabled.set(not current)
-        state = "enabled" if not current else "disabled"
-        await ctx.send(f"✅ Equals signs in math expressions have been **{state}**.")
