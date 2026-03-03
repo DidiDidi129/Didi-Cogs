@@ -194,7 +194,9 @@ class Count(commands.Cog):
             return
 
         if message.author.id == last_counter_id:
-            await self._handle_break(message, "You can't count twice in a row!")
+            await message.channel.send(
+                f"{message.author.mention} Can't count consecutively, wait for your turn!"
+            )
             return
 
         if number != expected:
@@ -251,12 +253,12 @@ class Count(commands.Cog):
             name_width = max(len(n) for n in names)
             name_width = max(name_width, 4)  # minimum width for "User"
 
-            header = f"{'Position':>10}   {'User':<{name_width}}   {'Count':>6}"
-            separator = f"{'-' * 10}   {'-' * name_width}   {'-' * 6}"
+            header = f"{'#':>3} {'User':<{name_width}} {'Count':>5}"
+            separator = f"{'-' * 3} {'-' * name_width} {'-' * 5}"
             lines = [header, separator]
             for idx, ((user_id, total), name) in enumerate(zip(chunk, names)):
                 rank = i + idx + 1
-                lines.append(f"{rank:>10}   {name:<{name_width}}   {total:>6}")
+                lines.append(f"{rank:>3} {name:<{name_width}} {total:>5}")
             pages.append("```\n" + "\n".join(lines) + "\n```")
         return pages
 
