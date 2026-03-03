@@ -41,3 +41,4 @@ Saves are an optional feature (off by default) that lets a server recover from a
 | `[p]countset saves` | Toggle the saves feature on or off. Off by default. |
 | `[p]countset saveinterval <number>` | Set how many counts are needed to earn a save. Default is 1000. |
 | `[p]countset addsave [amount]` | Add one or more saves to the server. Defaults to 1. |
+| `[p]countset leaderboard [channel]` | Set a channel for a persistent auto-updating leaderboard. Omit channel to remove it. |
