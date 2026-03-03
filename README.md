@@ -10,6 +10,19 @@ First make sure downloader is loaded, choose a Cog from the list below and repla
 You may be asked to respond with "I agree" after adding the repo.
 
 ## Available Cogs
+- Count
+    - A counting game for your server where users count up one number at a time.
+    - Commands: `[p]countleaderboard`, `[p]countset`
+    - Settings (`[p]countset`):
+        - `channel` — Set the counting channel (Admin only)
+        - `count` — Manually set the current count (Admin only)
+        - `highscore` — Overwrite the high score (Admin only)
+        - `emoji` — Set the reaction emoji for correct counts (Admin only)
+        - `edit` — Edit a user's total count (Admin only)
+        - `saves` — Toggle the saves feature on/off (Admin only)
+        - `saveinterval` — Set how many counts earn a save (Admin only)
+        - `addsave` — Add saves to the server (Admin only)
+        - `funnyreactions` — Toggle funny reactions for 67, 69, and 420: reacts with the configured emoji first, then one emoji per digit, then 💀 (Admin only)
 - Gemini
     - Alternative to the popular Assistant Cog, which can use Gemini's API
     - Commands: `[p]gemini`

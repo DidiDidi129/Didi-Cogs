@@ -104,8 +104,25 @@ class Count(commands.Cog):
             "saves": 0,
             "save_interval": 1000,
             "total_counts": 0,
+            "funnyreactions": False,
         }
         self.config.register_guild(**default_guild)
+
+    # Number → keycap digit emoji mapping used for funny reactions
+    _DIGIT_EMOJIS = {
+        "0": "0️⃣",
+        "1": "1️⃣",
+        "2": "2️⃣",
+        "3": "3️⃣",
+        "4": "4️⃣",
+        "5": "5️⃣",
+        "6": "6️⃣",
+        "7": "7️⃣",
+        "8": "8️⃣",
+        "9": "9️⃣",
+    }
+    _FUNNY_NUMBERS = {67, 69, 420}
+    _SKULL_EMOJI = "💀"
 
     # ---------------------------
     # Helpers
@@ -200,6 +217,10 @@ class Count(commands.Cog):
             return
 
         if message.author.id == last_counter_id:
+            try:
+                await message.delete()
+            except (discord.HTTPException, discord.Forbidden):
+                pass
             await message.channel.send(
                 f"{message.author.mention} Can't count consecutively, wait for your turn!"
             )
@@ -237,10 +258,20 @@ class Count(commands.Cog):
                 )
 
         emoji = await self.config.guild(message.guild).emoji()
-        try:
-            await message.add_reaction(emoji)
-        except (discord.HTTPException, discord.NotFound):
-            await message.add_reaction("✅")
+        funnyreactions = await self.config.guild(message.guild).funnyreactions()
+
+        if funnyreactions and number in self._FUNNY_NUMBERS:
+            # Configured emoji first, then one emoji per digit, then skull
+            reactions = [emoji] + [self._DIGIT_EMOJIS[d] for d in str(number)] + [self._SKULL_EMOJI]
+        else:
+            reactions = [emoji]
+
+        for reaction in reactions:
+            try:
+                await message.add_reaction(reaction)
+            except (discord.HTTPException, discord.NotFound):
+                if reaction == emoji:
+                    await message.add_reaction("✅")
 
     # ---------------------------
     # Leaderboard helpers
@@ -403,5 +434,14 @@ class Count(commands.Cog):
         new_saves = saves + amount
         await self.config.guild(ctx.guild).saves.set(new_saves)
         await ctx.send(f"🛡️ Added **{amount}** save(s). Total saves: **{new_saves}**")
+
+    @countset.command(name="funnyreactions")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_funnyreactions(self, ctx):
+        """Toggle funny reactions for 67, 69, and 420. Off by default. (Admin only)"""
+        current = await self.config.guild(ctx.guild).funnyreactions()
+        await self.config.guild(ctx.guild).funnyreactions.set(not current)
+        state = "enabled" if not current else "disabled"
+        await ctx.send(f"✅ Funny reactions have been **{state}**.")
 
 
