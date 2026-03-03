@@ -63,10 +63,10 @@ class LeaderboardView(discord.ui.View):
         )
         description = ""
         if self.saves_enabled and self.counts_until_save > 0:
-            description += f"🛡️ **{self.counts_until_save}** successful count(s) until next save!\n\n"
+            description += f"**{self.counts_until_save}** successful count(s) until next save!\n\n"
         description += self.pages[self.current_page]
         embed.description = description
-        footer = f"Current count: {self.current_count} | Server High Score: {self.high_score}"
+        footer = f"High Score: {self.high_score}"
         if self.saves_enabled:
             footer += f" | Saves: {self.saves}"
         if len(self.pages) > 1:
