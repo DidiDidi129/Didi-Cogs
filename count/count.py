@@ -1,5 +1,48 @@
 import discord
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config
+
+
+ITEMS_PER_PAGE = 10
+
+
+class LeaderboardView(discord.ui.View):
+    """Paginated view for the counting leaderboard."""
+
+    def __init__(self, pages, current_count, high_score):
+        super().__init__(timeout=120)
+        self.pages = pages
+        self.current_page = 0
+        self.current_count = current_count
+        self.high_score = high_score
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page >= len(self.pages) - 1
+
+    def build_embed(self):
+        embed = discord.Embed(
+            title="Counting Leaderboard",
+            description=self.pages[self.current_page],
+            color=discord.Color.gold(),
+        )
+        footer = f"Current count: {self.current_count} | Server High Score: {self.high_score}"
+        if len(self.pages) > 1:
+            footer = f"Page {self.current_page + 1}/{len(self.pages)} | {footer}"
+        embed.set_footer(text=footer)
+        return embed
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
 
 class Count(commands.Cog):
@@ -87,6 +130,35 @@ class Count(commands.Cog):
             await message.add_reaction("✅")
 
     # ---------------------------
+    # Leaderboard helpers
+    # ---------------------------
+    @staticmethod
+    def _build_leaderboard_pages(sorted_counts, guild):
+        """Build paginated leaderboard pages in tabular format."""
+        pages = []
+        for i in range(0, len(sorted_counts), ITEMS_PER_PAGE):
+            chunk = sorted_counts[i : i + ITEMS_PER_PAGE]
+            # Determine column widths dynamically
+            names = []
+            for user_id, _ in chunk:
+                member = guild.get_member(int(user_id))
+                name = member.display_name if member else f"Unknown ({user_id})"
+                if len(name) > 20:
+                    name = name[:17] + "..."
+                names.append(name)
+            name_width = max(len(n) for n in names)
+            name_width = max(name_width, 4)  # minimum width for "User"
+
+            header = f"{'Position':>10}   {'User':<{name_width}}   {'Count':>6}"
+            separator = f"{'-' * 10}   {'-' * name_width}   {'-' * 6}"
+            lines = [header, separator]
+            for idx, ((user_id, total), name) in enumerate(zip(chunk, names)):
+                rank = i + idx + 1
+                lines.append(f"{rank:>10}   {name:<{name_width}}   {total:>6}")
+            pages.append("```\n" + "\n".join(lines) + "\n```")
+        return pages
+
+    # ---------------------------
     # Leaderboard
     # ---------------------------
     @commands.command(name="countleaderboard", aliases=["countlb"])
@@ -95,25 +167,27 @@ class Count(commands.Cog):
         """Show the counting game leaderboard."""
         counts = await self.config.guild(ctx.guild).counts()
         if not counts:
-            return await ctx.send("📊 No counting data yet!")
+            return await ctx.send("No counting data yet!")
 
         sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        pages = self._build_leaderboard_pages(sorted_counts, ctx.guild)
 
-        entries = []
-        for rank, (user_id, total) in enumerate(sorted_counts[:20], start=1):
-            member = ctx.guild.get_member(int(user_id))
-            name = member.display_name if member else f"Unknown ({user_id})"
-            entries.append(f"**{rank}.** {name} — {total} count{'s' if total != 1 else ''}")
-
-        embed = discord.Embed(
-            title="🔢 Counting Leaderboard",
-            description="\n".join(entries),
-            color=discord.Color.gold(),
-        )
         current_count = await self.config.guild(ctx.guild).current_count()
         high_score = await self.config.guild(ctx.guild).high_score()
-        embed.set_footer(text=f"Current count: {current_count} | High score: {high_score}")
-        await ctx.send(embed=embed)
+
+        view = LeaderboardView(pages, current_count, high_score)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    # ---------------------------
+    # Settings helpers
+    # ---------------------------
+    async def _react_confirm(self, ctx):
+        """React to a settings command with the configured emoji."""
+        emoji = await self.config.guild(ctx.guild).emoji()
+        try:
+            await ctx.message.add_reaction(emoji)
+        except (discord.HTTPException, discord.NotFound):
+            await ctx.message.add_reaction("✅")
 
     # ---------------------------
     # Settings
@@ -133,26 +207,10 @@ class Count(commands.Cog):
         if current_channel_id == channel.id:
             return await ctx.send(f"⚠️ {channel.mention} is already the counting channel.")
 
-        if current_channel_id is not None:
-            old_channel = ctx.guild.get_channel(current_channel_id)
-            old_channel_display = old_channel.mention if old_channel else f"deleted channel ({current_channel_id})"
-            await ctx.send(
-                f"⚠️ Switching counting channel from {old_channel_display} to {channel.mention}. "
-                f"Only one counting channel can be active at a time."
-            )
-
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
         await self.config.guild(ctx.guild).current_count.set(0)
         await self.config.guild(ctx.guild).last_counter_id.set(None)
-        await ctx.send(f"✅ Counting channel set to {channel.mention}. Count starts from **1**.")
-
-    @countset.command(name="reset")
-    @commands.admin_or_permissions(administrator=True)
-    async def countset_reset(self, ctx):
-        """Reset the current count back to 0. (Admin only)"""
-        await self.config.guild(ctx.guild).current_count.set(0)
-        await self.config.guild(ctx.guild).last_counter_id.set(None)
-        await ctx.send("✅ The count has been reset to **0**.")
+        await self._react_confirm(ctx)
 
     @countset.command(name="setcount")
     @commands.admin_or_permissions(administrator=True)
@@ -162,7 +220,7 @@ class Count(commands.Cog):
             return await ctx.send("❌ The count cannot be set to a negative number.")
         await self.config.guild(ctx.guild).current_count.set(number)
         await self.config.guild(ctx.guild).last_counter_id.set(None)
-        await ctx.send(f"✅ The count has been set to **{number}**. The next number is **{number + 1}**.")
+        await self._react_confirm(ctx)
 
     @countset.command(name="emoji")
     @commands.admin_or_permissions(administrator=True)
@@ -175,7 +233,6 @@ class Count(commands.Cog):
             return await ctx.send("❌ That doesn't appear to be a valid emoji I can use.")
 
         await self.config.guild(ctx.guild).emoji.set(emoji)
-        await ctx.send(f"✅ Counting reaction emoji set to {emoji}.")
 
     @countset.command(name="edit")
     @commands.admin_or_permissions(administrator=True)
@@ -187,7 +244,4 @@ class Count(commands.Cog):
             new_total = max(current + amount, 0)
             counts[user_id] = new_total
 
-        msg = f"✅ {member.display_name}'s count updated: {current} → {new_total}."
-        if current + amount < 0:
-            msg += " (Clamped to 0, cannot go below zero.)"
-        await ctx.send(msg)
+        await self._react_confirm(ctx)
