@@ -2,7 +2,7 @@ import discord
 from redbot.core import commands, Config, checks
 
 
-class CountingGame(commands.Cog):
+class Count(commands.Cog):
     """A counting game for your server."""
 
     def __init__(self, bot):
@@ -13,6 +13,8 @@ class CountingGame(commands.Cog):
             "current_count": 0,
             "last_counter_id": None,
             "counts": {},
+            "high_score": 0,
+            "emoji": "✅",
         }
         self.config.register_guild(**default_guild)
 
@@ -68,11 +70,21 @@ class CountingGame(commands.Cog):
         await self.config.guild(message.guild).current_count.set(number)
         await self.config.guild(message.guild).last_counter_id.set(message.author.id)
 
+        # Update high score if current count exceeds it
+        high_score = await self.config.guild(message.guild).high_score()
+        if number > high_score:
+            await self.config.guild(message.guild).high_score.set(number)
+
         async with self.config.guild(message.guild).counts() as counts:
             user_id = str(message.author.id)
             counts[user_id] = counts.get(user_id, 0) + 1
 
-        await message.add_reaction("✅")
+        # React with the configured emoji
+        emoji = await self.config.guild(message.guild).emoji()
+        try:
+            await message.add_reaction(emoji)
+        except (discord.HTTPException, discord.NotFound):
+            await message.add_reaction("✅")
 
     # ---------------------------
     # Leaderboard
@@ -99,7 +111,8 @@ class CountingGame(commands.Cog):
             color=discord.Color.gold(),
         )
         current_count = await self.config.guild(ctx.guild).current_count()
-        embed.set_footer(text=f"Current count: {current_count}")
+        high_score = await self.config.guild(ctx.guild).high_score()
+        embed.set_footer(text=f"Current count: {current_count} | High score: {high_score}")
         await ctx.send(embed=embed)
 
     # ---------------------------
@@ -113,11 +126,25 @@ class CountingGame(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @countset.command(name="channel")
-    @checks.is_owner()
+    @commands.admin_or_permissions(administrator=True)
     async def countset_channel(self, ctx, channel: discord.TextChannel):
-        """Set the counting channel. (Bot owner only)"""
+        """Set the counting channel. Only one channel can be active at a time. (Admin only)"""
+        current_channel_id = await self.config.guild(ctx.guild).channel_id()
+        if current_channel_id == channel.id:
+            return await ctx.send(f"⚠️ {channel.mention} is already the counting channel.")
+
+        if current_channel_id is not None:
+            old_channel = ctx.guild.get_channel(current_channel_id)
+            old_name = old_channel.mention if old_channel else f"deleted channel ({current_channel_id})"
+            await ctx.send(
+                f"⚠️ Switching counting channel from {old_name} to {channel.mention}. "
+                f"Only one counting channel can be active at a time."
+            )
+
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
-        await ctx.send(f"✅ Counting channel set to {channel.mention}.")
+        await self.config.guild(ctx.guild).current_count.set(0)
+        await self.config.guild(ctx.guild).last_counter_id.set(None)
+        await ctx.send(f"✅ Counting channel set to {channel.mention}. Count starts from **1**.")
 
     @countset.command(name="reset")
     @commands.admin_or_permissions(administrator=True)
@@ -126,6 +153,29 @@ class CountingGame(commands.Cog):
         await self.config.guild(ctx.guild).current_count.set(0)
         await self.config.guild(ctx.guild).last_counter_id.set(None)
         await ctx.send("✅ The count has been reset to **0**.")
+
+    @countset.command(name="setcount")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_setcount(self, ctx, number: int):
+        """Set the current count to a specific number. (Admin only)"""
+        if number < 0:
+            return await ctx.send("❌ The count cannot be set to a negative number.")
+        await self.config.guild(ctx.guild).current_count.set(number)
+        await self.config.guild(ctx.guild).last_counter_id.set(None)
+        await ctx.send(f"✅ The count has been set to **{number}**. The next number is **{number + 1}**.")
+
+    @countset.command(name="emoji")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_emoji(self, ctx, emoji: str):
+        """Set the emoji the bot reacts with for correct counts. Supports built-in and server emojis. (Admin only)"""
+        # Try to react to the command message to verify the emoji is valid
+        try:
+            await ctx.message.add_reaction(emoji)
+        except (discord.HTTPException, discord.NotFound):
+            return await ctx.send("❌ That doesn't appear to be a valid emoji I can use.")
+
+        await self.config.guild(ctx.guild).emoji.set(emoji)
+        await ctx.send(f"✅ Counting reaction emoji set to {emoji}.")
 
     @countset.command(name="edit")
     @commands.admin_or_permissions(administrator=True)
