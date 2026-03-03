@@ -51,5 +51,6 @@ All settings commands confirm success by reacting to your message with the confi
 | `[p]countset edit <member> <amount>` | Edit a user's total count. Use a positive number to increase or negative to decrease. |
 | `[p]countset saves` | Toggle the saves feature on or off. Off by default. |
 | `[p]countset saveinterval <number>` | Set how many counts are needed to earn a save. Default is 1000. |
+| `[p]countset addsave [amount]` | Add one or more saves to the server. Defaults to 1. |
 | `[p]countset math` | Toggle whether math expressions can be used for counting. On by default. |
 | `[p]countset equals` | Toggle whether equals signs are allowed in math expressions. On by default. |
