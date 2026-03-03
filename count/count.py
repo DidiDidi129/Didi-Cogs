@@ -355,7 +355,6 @@ class Count(commands.Cog):
         if saves_enabled:
             footer += f" | Saves: {saves}"
         embed.set_footer(text=footer)
-        embed.timestamp = discord.utils.utcnow()
         return embed
 
     async def _update_persistent_leaderboard(self, guild_id):
