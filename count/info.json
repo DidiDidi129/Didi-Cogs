@@ -1,6 +1,6 @@
 {
     "author": ["Didi"],
-    "install_msg": "Thanks for installing the Count cog! Use `[p]countset channel` to designate a counting channel.",
+    "install_msg": "Thanks for installing the Count cog! Use `[p]countset` to look at the configuration options.",
     "name": "Count",
     "short": "A counting game for your server",
     "description": "A fun counting game where users count together in a designated channel. Tracks individual counts and features a leaderboard with high score tracking.",
