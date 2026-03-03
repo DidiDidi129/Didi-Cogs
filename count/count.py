@@ -1,8 +1,91 @@
+import ast
+import operator
+
 import discord
 from redbot.core import commands, Config
 
 
 ITEMS_PER_PAGE = 10
+
+SAFE_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+
+
+def safe_eval_math(expr):
+    """Safely evaluate a basic math expression (+, -, *, / only).
+
+    Returns an int if the result is a whole number, otherwise ``None``.
+    """
+    try:
+        tree = ast.parse(expr.strip(), mode="eval")
+    except SyntaxError:
+        return None
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        elif isinstance(node, ast.BinOp):
+            op_type = type(node.op)
+            if op_type not in SAFE_OPS:
+                raise ValueError
+            left = _eval(node.left)
+            right = _eval(node.right)
+            if op_type is ast.Div and right == 0:
+                raise ValueError
+            return SAFE_OPS[op_type](left, right)
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -_eval(node.operand)
+        else:
+            raise ValueError
+
+    try:
+        result = _eval(tree)
+        if isinstance(result, float):
+            if result == int(result):
+                return int(result)
+            return None  # non-integer results are not valid for counting
+        return result
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+class SaveView(discord.ui.View):
+    """Accept / Deny buttons shown when a save is available."""
+
+    def __init__(self, user_id):
+        super().__init__(timeout=30)
+        self.user_id = user_id
+        self.result = None
+
+    @discord.ui.button(label="Use Save", style=discord.ButtonStyle.success)
+    async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "Only the person who broke the count can decide.", ephemeral=True
+            )
+        self.result = True
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Don't Save", style=discord.ButtonStyle.danger)
+    async def deny_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "Only the person who broke the count can decide.", ephemeral=True
+            )
+        self.result = False
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
 
 
 class LeaderboardView(discord.ui.View):
@@ -58,8 +141,104 @@ class Count(commands.Cog):
             "counts": {},
             "high_score": 0,
             "emoji": "✅",
+            "saves_enabled": False,
+            "saves": 0,
+            "save_interval": 1000,
+            "math_enabled": True,
+            "equals_enabled": True,
         }
         self.config.register_guild(**default_guild)
+
+    # ---------------------------
+    # Helpers
+    # ---------------------------
+    def _parse_number(self, content, math_enabled, equals_enabled):
+        """Try to interpret *content* as the next count value.
+
+        Returns an ``int`` on success, ``None`` on failure.
+        """
+        # 1. Plain integer
+        try:
+            return int(content)
+        except ValueError:
+            pass
+
+        if not math_enabled:
+            return None
+
+        # 2. Expression with '=' (e.g. "2+3=5")
+        if "=" in content:
+            if not equals_enabled:
+                return None
+            parts = content.split("=")
+            if len(parts) == 2:
+                expr_result = safe_eval_math(parts[0])
+                try:
+                    stated_result = int(parts[1].strip())
+                except ValueError:
+                    stated_result = None
+                if expr_result is not None and stated_result is not None and expr_result == stated_result:
+                    return stated_result
+            return None
+
+        # 3. Pure math expression (e.g. "2+3")
+        return safe_eval_math(content)
+
+    async def _handle_break(self, message, reason):
+        """Handle a count break, optionally offering a save."""
+        guild = message.guild
+        current_count = await self.config.guild(guild).current_count()
+        saves_enabled = await self.config.guild(guild).saves_enabled()
+        saves = await self.config.guild(guild).saves() if saves_enabled else 0
+
+        if saves_enabled and saves > 0 and current_count > 0:
+            view = SaveView(message.author.id)
+            save_msg = await message.channel.send(
+                f"❌ {message.author.mention} {reason} "
+                f"Your server has **{saves}** save(s). "
+                f"Would you like to use one to restore the count to **{current_count}**?",
+                view=view,
+            )
+            await view.wait()
+
+            if view.result is True:
+                await self.config.guild(guild).saves.set(saves - 1)
+                await self.config.guild(guild).last_counter_id.set(None)
+                await save_msg.edit(
+                    content=(
+                        f"🛡️ Save used! The count has been restored to **{current_count}**. "
+                        f"Remaining saves: **{saves - 1}**"
+                    ),
+                    view=None,
+                )
+                return
+
+            # Denied or timed out
+            await self.config.guild(guild).current_count.set(0)
+            await self.config.guild(guild).last_counter_id.set(None)
+            if view.result is False:
+                await save_msg.edit(
+                    content=(
+                        f"❌ {message.author.mention} {reason} "
+                        f"The count has been broken. Restart from **1**."
+                    ),
+                    view=None,
+                )
+            else:
+                await save_msg.edit(
+                    content=(
+                        f"❌ {message.author.mention} {reason} "
+                        f"No response received. The count has been broken. Restart from **1**."
+                    ),
+                    view=None,
+                )
+        else:
+            await message.channel.send(
+                f"❌ {message.author.mention} {reason} "
+                f"The count has been broken. Restart from **1**."
+            )
+            await self.config.guild(guild).current_count.set(0)
+            await self.config.guild(guild).last_counter_id.set(None)
 
     # ---------------------------
     # Counting listener
@@ -77,36 +256,21 @@ class Count(commands.Cog):
         last_counter_id = await self.config.guild(message.guild).last_counter_id()
         expected = current_count + 1
 
-        # Check if the message is a valid number
-        try:
-            number = int(message.content.strip())
-        except ValueError:
-            await message.channel.send(
-                f"❌ {message.author.mention} That's not a valid number! "
-                f"The count has been broken. Restart from **1**."
-            )
-            await self.config.guild(message.guild).current_count.set(0)
-            await self.config.guild(message.guild).last_counter_id.set(None)
+        content = message.content.strip()
+        math_enabled = await self.config.guild(message.guild).math_enabled()
+        equals_enabled = await self.config.guild(message.guild).equals_enabled()
+        number = self._parse_number(content, math_enabled, equals_enabled)
+
+        if number is None:
+            await self._handle_break(message, "That's not a valid number!")
             return
 
-        # Check if the same user is counting twice in a row
         if message.author.id == last_counter_id:
-            await message.channel.send(
-                f"❌ {message.author.mention} You can't count twice in a row! "
-                f"The count has been broken. Restart from **1**."
-            )
-            await self.config.guild(message.guild).current_count.set(0)
-            await self.config.guild(message.guild).last_counter_id.set(None)
+            await self._handle_break(message, "You can't count twice in a row!")
             return
 
-        # Check if the number is correct
         if number != expected:
-            await message.channel.send(
-                f"❌ {message.author.mention} Wrong number! Expected **{expected}**. "
-                f"The count has been broken. Restart from **1**."
-            )
-            await self.config.guild(message.guild).current_count.set(0)
-            await self.config.guild(message.guild).last_counter_id.set(None)
+            await self._handle_break(message, f"Wrong number! Expected **{expected}**.")
             return
 
         # Valid count
@@ -121,6 +285,17 @@ class Count(commands.Cog):
         async with self.config.guild(message.guild).counts() as counts:
             user_id = str(message.author.id)
             counts[user_id] = counts.get(user_id, 0) + 1
+
+        # Award a save every <save_interval> counts
+        saves_enabled = await self.config.guild(message.guild).saves_enabled()
+        if saves_enabled:
+            save_interval = await self.config.guild(message.guild).save_interval()
+            if save_interval > 0 and number % save_interval == 0:
+                saves = await self.config.guild(message.guild).saves()
+                await self.config.guild(message.guild).saves.set(saves + 1)
+                await message.channel.send(
+                    f"🛡️ The server earned a save! Total saves: **{saves + 1}**"
+                )
 
         # React with the configured emoji
         emoji = await self.config.guild(message.guild).emoji()
@@ -196,8 +371,7 @@ class Count(commands.Cog):
     @commands.guild_only()
     async def countset(self, ctx):
         """Settings for the counting game."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+        pass
 
     @countset.command(name="channel")
     @commands.admin_or_permissions(administrator=True)
@@ -212,9 +386,9 @@ class Count(commands.Cog):
         await self.config.guild(ctx.guild).last_counter_id.set(None)
         await self._react_confirm(ctx)
 
-    @countset.command(name="setcount")
+    @countset.command(name="count")
     @commands.admin_or_permissions(administrator=True)
-    async def countset_setcount(self, ctx, number: int):
+    async def countset_count(self, ctx, number: int):
         """Set the current count to a specific number. (Admin only)"""
         if number < 0:
             return await ctx.send("❌ The count cannot be set to a negative number.")
@@ -245,3 +419,39 @@ class Count(commands.Cog):
             counts[user_id] = new_total
 
         await self._react_confirm(ctx)
+
+    @countset.command(name="saves")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_saves(self, ctx):
+        """Toggle the saves feature on or off. Off by default. (Admin only)"""
+        current = await self.config.guild(ctx.guild).saves_enabled()
+        await self.config.guild(ctx.guild).saves_enabled.set(not current)
+        state = "enabled" if not current else "disabled"
+        await ctx.send(f"✅ Saves have been **{state}**.")
+
+    @countset.command(name="saveinterval")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_saveinterval(self, ctx, number: int):
+        """Set how many counts are needed to earn a save. Default is 1000. (Admin only)"""
+        if number < 1:
+            return await ctx.send("❌ The save interval must be at least 1.")
+        await self.config.guild(ctx.guild).save_interval.set(number)
+        await self._react_confirm(ctx)
+
+    @countset.command(name="math")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_math(self, ctx):
+        """Toggle whether math expressions can be used for counting. On by default. (Admin only)"""
+        current = await self.config.guild(ctx.guild).math_enabled()
+        await self.config.guild(ctx.guild).math_enabled.set(not current)
+        state = "enabled" if not current else "disabled"
+        await ctx.send(f"✅ Math expressions have been **{state}**.")
+
+    @countset.command(name="equals")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_equals(self, ctx):
+        """Toggle whether equals signs are allowed in math expressions. On by default. (Admin only)"""
+        current = await self.config.guild(ctx.guild).equals_enabled()
+        await self.config.guild(ctx.guild).equals_enabled.set(not current)
+        state = "enabled" if not current else "disabled"
+        await ctx.send(f"✅ Equals signs in math expressions have been **{state}**.")
