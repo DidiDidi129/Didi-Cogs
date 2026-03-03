@@ -41,7 +41,7 @@ class SaveView(discord.ui.View):
 class LeaderboardView(discord.ui.View):
     """Paginated view for the counting leaderboard."""
 
-    def __init__(self, pages, current_count, high_score, saves_enabled=False, saves=0):
+    def __init__(self, pages, current_count, high_score, saves_enabled=False, saves=0, counts_until_save=0):
         super().__init__(timeout=120)
         self.pages = pages
         self.current_page = 0
@@ -49,6 +49,7 @@ class LeaderboardView(discord.ui.View):
         self.high_score = high_score
         self.saves_enabled = saves_enabled
         self.saves = saves
+        self.counts_until_save = counts_until_save
         self._update_buttons()
 
     def _update_buttons(self):
@@ -58,9 +59,13 @@ class LeaderboardView(discord.ui.View):
     def build_embed(self):
         embed = discord.Embed(
             title="Counting Leaderboard",
-            description=self.pages[self.current_page],
             color=discord.Color.gold(),
         )
+        description = ""
+        if self.saves_enabled and self.counts_until_save > 0:
+            description += f"🛡️ **{self.counts_until_save}** successful count(s) until next save!\n\n"
+        description += self.pages[self.current_page]
+        embed.description = description
         footer = f"Current count: {self.current_count} | Server High Score: {self.high_score}"
         if self.saves_enabled:
             footer += f" | Saves: {self.saves}"
@@ -98,6 +103,7 @@ class Count(commands.Cog):
             "saves_enabled": False,
             "saves": 0,
             "save_interval": 1000,
+            "total_counts": 0,
         }
         self.config.register_guild(**default_guild)
 
@@ -219,8 +225,11 @@ class Count(commands.Cog):
         # Award a save every <save_interval> counts
         saves_enabled = await self.config.guild(message.guild).saves_enabled()
         if saves_enabled:
+            total_counts = await self.config.guild(message.guild).total_counts()
+            total_counts += 1
+            await self.config.guild(message.guild).total_counts.set(total_counts)
             save_interval = await self.config.guild(message.guild).save_interval()
-            if save_interval > 0 and number % save_interval == 0:
+            if save_interval > 0 and total_counts % save_interval == 0:
                 saves = await self.config.guild(message.guild).saves()
                 await self.config.guild(message.guild).saves.set(saves + 1)
                 await message.channel.send(
@@ -280,8 +289,14 @@ class Count(commands.Cog):
         high_score = await self.config.guild(ctx.guild).high_score()
         saves_enabled = await self.config.guild(ctx.guild).saves_enabled()
         saves = await self.config.guild(ctx.guild).saves() if saves_enabled else 0
+        counts_until_save = 0
+        if saves_enabled:
+            total_counts = await self.config.guild(ctx.guild).total_counts()
+            save_interval = await self.config.guild(ctx.guild).save_interval()
+            if save_interval > 0:
+                counts_until_save = save_interval - (total_counts % save_interval)
 
-        view = LeaderboardView(pages, current_count, high_score, saves_enabled, saves)
+        view = LeaderboardView(pages, current_count, high_score, saves_enabled, saves, counts_until_save)
         await ctx.send(embed=view.build_embed(), view=view)
 
     # ---------------------------
