@@ -18,10 +18,13 @@ SAFE_OPS = {
 def safe_eval_math(expr):
     """Safely evaluate a basic math expression (+, -, *, / only).
 
+    Also accepts ``x`` for multiplication and ``÷`` for division.
+
     Returns an int if the result is a whole number, otherwise ``None``.
     """
     try:
-        tree = ast.parse(expr.strip(), mode="eval")
+        normalized = expr.strip().replace("x", "*").replace("X", "*").replace("÷", "/")
+        tree = ast.parse(normalized, mode="eval")
     except SyntaxError:
         return None
 
