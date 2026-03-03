@@ -137,6 +137,7 @@ class CountingGame(commands.Cog):
             new_total = max(current + amount, 0)
             counts[user_id] = new_total
 
-        await ctx.send(
-            f"✅ {member.display_name}'s count updated: {current} → {new_total}."
-        )
+        msg = f"✅ {member.display_name}'s count updated: {current} → {new_total}."
+        if current + amount < 0:
+            msg += " (Clamped to 0, cannot go below zero.)"
+        await ctx.send(msg)
