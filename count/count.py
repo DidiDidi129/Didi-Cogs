@@ -7,6 +7,19 @@ from redbot.core import commands, Config
 
 ITEMS_PER_PAGE = 10
 
+DIGIT_EMOJIS = {
+    "0": "0️⃣",
+    "1": "1️⃣",
+    "2": "2️⃣",
+    "3": "3️⃣",
+    "4": "4️⃣",
+    "5": "5️⃣",
+    "6": "6️⃣",
+    "7": "7️⃣",
+    "8": "8️⃣",
+    "9": "9️⃣",
+}
+
 SAFE_OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -91,12 +104,14 @@ class SaveView(discord.ui.View):
 class LeaderboardView(discord.ui.View):
     """Paginated view for the counting leaderboard."""
 
-    def __init__(self, pages, current_count, high_score):
+    def __init__(self, pages, current_count, high_score, saves_enabled=False, saves=0):
         super().__init__(timeout=120)
         self.pages = pages
         self.current_page = 0
         self.current_count = current_count
         self.high_score = high_score
+        self.saves_enabled = saves_enabled
+        self.saves = saves
         self._update_buttons()
 
     def _update_buttons(self):
@@ -110,6 +125,8 @@ class LeaderboardView(discord.ui.View):
             color=discord.Color.gold(),
         )
         footer = f"Current count: {self.current_count} | Server High Score: {self.high_score}"
+        if self.saves_enabled:
+            footer += f" | Saves: {self.saves}"
         if len(self.pages) > 1:
             footer = f"Page {self.current_page + 1}/{len(self.pages)} | {footer}"
         embed.set_footer(text=footer)
@@ -155,21 +172,21 @@ class Count(commands.Cog):
     def _parse_number(self, content, math_enabled, equals_enabled):
         """Try to interpret *content* as the next count value.
 
-        Returns an ``int`` on success, ``None`` on failure.
+        Returns ``(int, is_math_expr)`` on success, ``(None, False)`` on failure.
         """
         # 1. Plain integer
         try:
-            return int(content)
+            return int(content), False
         except ValueError:
             pass
 
         if not math_enabled:
-            return None
+            return None, False
 
         # 2. Expression with '=' (e.g. "2+3=5")
         if "=" in content:
             if not equals_enabled:
-                return None
+                return None, False
             parts = content.split("=")
             if len(parts) == 2:
                 expr_result = safe_eval_math(parts[0])
@@ -178,11 +195,12 @@ class Count(commands.Cog):
                 except ValueError:
                     stated_result = None
                 if expr_result is not None and stated_result is not None and expr_result == stated_result:
-                    return stated_result
-            return None
+                    return stated_result, True
+            return None, False
 
         # 3. Pure math expression (e.g. "2+3")
-        return safe_eval_math(content)
+        result = safe_eval_math(content)
+        return result, result is not None
 
     async def _handle_break(self, message, reason):
         """Handle a count break, optionally offering a save."""
@@ -259,7 +277,7 @@ class Count(commands.Cog):
         content = message.content.strip()
         math_enabled = await self.config.guild(message.guild).math_enabled()
         equals_enabled = await self.config.guild(message.guild).equals_enabled()
-        number = self._parse_number(content, math_enabled, equals_enabled)
+        number, is_math = self._parse_number(content, math_enabled, equals_enabled)
 
         if number is None:
             await self._handle_break(message, "That's not a valid number!")
@@ -297,12 +315,21 @@ class Count(commands.Cog):
                     f"🛡️ The server earned a save! Total saves: **{saves + 1}**"
                 )
 
-        # React with the configured emoji
-        emoji = await self.config.guild(message.guild).emoji()
-        try:
-            await message.add_reaction(emoji)
-        except (discord.HTTPException, discord.NotFound):
-            await message.add_reaction("✅")
+        # React with digit emojis for math expressions, or the configured emoji
+        if is_math:
+            for digit in str(number):
+                emoji_char = DIGIT_EMOJIS.get(digit)
+                if emoji_char:
+                    try:
+                        await message.add_reaction(emoji_char)
+                    except (discord.HTTPException, discord.NotFound):
+                        pass
+        else:
+            emoji = await self.config.guild(message.guild).emoji()
+            try:
+                await message.add_reaction(emoji)
+            except (discord.HTTPException, discord.NotFound):
+                await message.add_reaction("✅")
 
     # ---------------------------
     # Leaderboard helpers
@@ -349,8 +376,10 @@ class Count(commands.Cog):
 
         current_count = await self.config.guild(ctx.guild).current_count()
         high_score = await self.config.guild(ctx.guild).high_score()
+        saves_enabled = await self.config.guild(ctx.guild).saves_enabled()
+        saves = await self.config.guild(ctx.guild).saves() if saves_enabled else 0
 
-        view = LeaderboardView(pages, current_count, high_score)
+        view = LeaderboardView(pages, current_count, high_score, saves_enabled, saves)
         await ctx.send(embed=view.build_embed(), view=view)
 
     # ---------------------------
