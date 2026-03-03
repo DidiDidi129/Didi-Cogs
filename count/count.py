@@ -7,19 +7,6 @@ from redbot.core import commands, Config
 
 ITEMS_PER_PAGE = 10
 
-DIGIT_EMOJIS = {
-    "0": "0️⃣",
-    "1": "1️⃣",
-    "2": "2️⃣",
-    "3": "3️⃣",
-    "4": "4️⃣",
-    "5": "5️⃣",
-    "6": "6️⃣",
-    "7": "7️⃣",
-    "8": "8️⃣",
-    "9": "9️⃣",
-}
-
 SAFE_OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -212,7 +199,7 @@ class Count(commands.Cog):
         if saves_enabled and saves > 0 and current_count > 0:
             view = SaveView(message.author.id)
             save_msg = await message.channel.send(
-                f"❌ {message.author.mention} {reason} "
+                f"{message.author.mention} {reason} "
                 f"Your server has **{saves}** save(s). "
                 f"Would you like to use one to restore the count to **{current_count}**?",
                 view=view,
@@ -237,7 +224,7 @@ class Count(commands.Cog):
             if view.result is False:
                 await save_msg.edit(
                     content=(
-                        f"❌ {message.author.mention} {reason} "
+                        f"{message.author.mention} {reason} "
                         f"The count has been broken. Restart from **1**."
                     ),
                     view=None,
@@ -245,14 +232,14 @@ class Count(commands.Cog):
             else:
                 await save_msg.edit(
                     content=(
-                        f"❌ {message.author.mention} {reason} "
+                        f"{message.author.mention} {reason} "
                         f"No response received. The count has been broken. Restart from **1**."
                     ),
                     view=None,
                 )
         else:
             await message.channel.send(
-                f"❌ {message.author.mention} {reason} "
+                f"{message.author.mention} {reason} "
                 f"The count has been broken. Restart from **1**."
             )
             await self.config.guild(guild).current_count.set(0)
@@ -288,7 +275,7 @@ class Count(commands.Cog):
             return
 
         if number != expected:
-            await self._handle_break(message, f"Wrong number! Expected **{expected}**.")
+            await self._handle_break(message, "Wrong number!")
             return
 
         # Valid count
@@ -315,21 +302,11 @@ class Count(commands.Cog):
                     f"🛡️ The server earned a save! Total saves: **{saves + 1}**"
                 )
 
-        # React with digit emojis for math expressions, or the configured emoji
-        if is_math:
-            for digit in str(number):
-                emoji_char = DIGIT_EMOJIS.get(digit)
-                if emoji_char:
-                    try:
-                        await message.add_reaction(emoji_char)
-                    except (discord.HTTPException, discord.NotFound):
-                        pass
-        else:
-            emoji = await self.config.guild(message.guild).emoji()
-            try:
-                await message.add_reaction(emoji)
-            except (discord.HTTPException, discord.NotFound):
-                await message.add_reaction("✅")
+        emoji = await self.config.guild(message.guild).emoji()
+        try:
+            await message.add_reaction(emoji)
+        except (discord.HTTPException, discord.NotFound):
+            await message.add_reaction("✅")
 
     # ---------------------------
     # Leaderboard helpers
