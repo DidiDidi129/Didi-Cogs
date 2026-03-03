@@ -135,9 +135,9 @@ class Count(commands.Cog):
 
         if current_channel_id is not None:
             old_channel = ctx.guild.get_channel(current_channel_id)
-            old_name = old_channel.mention if old_channel else f"deleted channel ({current_channel_id})"
+            old_channel_display = old_channel.mention if old_channel else f"deleted channel ({current_channel_id})"
             await ctx.send(
-                f"⚠️ Switching counting channel from {old_name} to {channel.mention}. "
+                f"⚠️ Switching counting channel from {old_channel_display} to {channel.mention}. "
                 f"Only one counting channel can be active at a time."
             )
 
