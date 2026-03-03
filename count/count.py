@@ -367,4 +367,15 @@ class Count(commands.Cog):
         await self.config.guild(ctx.guild).save_interval.set(number)
         await self._react_confirm(ctx)
 
+    @countset.command(name="addsave")
+    @commands.admin_or_permissions(administrator=True)
+    async def countset_addsave(self, ctx, amount: int = 1):
+        """Add one or more saves to the server. Defaults to 1. (Admin only)"""
+        if amount < 1:
+            return await ctx.send("❌ You must add at least 1 save.")
+        saves = await self.config.guild(ctx.guild).saves()
+        new_saves = saves + amount
+        await self.config.guild(ctx.guild).saves.set(new_saves)
+        await ctx.send(f"🛡️ Added **{amount}** save(s). Total saves: **{new_saves}**")
+
 
