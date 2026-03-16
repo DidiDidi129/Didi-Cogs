@@ -4,7 +4,7 @@ import discord
 from redbot.core import commands, Config
 
 
-ITEMS_PER_PAGE = 10
+ITEMS_PER_PAGE = 15
 LEADERBOARD_UPDATE_INTERVAL = 10  # seconds between persistent leaderboard edits
 
 
