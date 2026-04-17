@@ -25,15 +25,20 @@ class APOD(commands.Cog):
             api_key=None,
             ping_roles=[],
         )
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20))
+        self.session: Optional[aiohttp.ClientSession] = None
         self.guild_tasks: Dict[int, asyncio.Task] = {}
 
     def cog_unload(self):
         for task in self.guild_tasks.values():
             task.cancel()
         self.guild_tasks.clear()
-        if not self.session.closed:
+        if self.session is not None and not self.session.closed:
             asyncio.ensure_future(self.session.close())
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20))
+        return self.session
 
     async def fetch_apod(
         self, guild: Optional[discord.Guild], date: Optional[str] = None
@@ -49,7 +54,8 @@ class APOD(commands.Cog):
             params["date"] = date
 
         try:
-            async with self.session.get("https://api.nasa.gov/planetary/apod", params=params) as resp:
+            session = await self._get_session()
+            async with session.get("https://api.nasa.gov/planetary/apod", params=params) as resp:
                 if resp.status != 200:
                     return None, f"NASA API request failed (status {resp.status})."
                 payload = await resp.json(content_type=None)
@@ -138,6 +144,9 @@ class APOD(commands.Cog):
             pass
 
     async def _next_sleep_seconds(self, post_time: str) -> float:
+        if not isinstance(post_time, str) or ":" not in post_time:
+            raise ValueError(f"Invalid post_time format: {post_time!r}")
+        datetime.datetime.strptime(post_time, "%H:%M")
         hour, minute = map(int, post_time.split(":"))
         now = datetime.datetime.now(datetime.timezone.utc)
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -197,7 +206,7 @@ class APOD(commands.Cog):
 
     @commands.command()
     async def apod(self, ctx: commands.Context, date: Optional[str] = None):
-        """Get the Astronomy Picture of the Day. Optionally provide DD/MM/YYYY."""
+        """Get APOD. Optional date format: DD/MM/YYYY (from 16/06/1995 to today UTC)."""
         if ctx.guild is None:
             await ctx.send("❌ This command can only be used in a server.")
             return
