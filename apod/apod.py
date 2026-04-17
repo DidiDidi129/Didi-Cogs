@@ -146,8 +146,8 @@ class APOD(commands.Cog):
     async def _next_sleep_seconds(self, post_time: str) -> float:
         if not isinstance(post_time, str) or ":" not in post_time:
             raise ValueError(f"Invalid post_time format: {post_time!r}")
-        datetime.datetime.strptime(post_time, "%H:%M")
-        hour, minute = map(int, post_time.split(":"))
+        parsed_time = datetime.datetime.strptime(post_time, "%H:%M")
+        hour, minute = parsed_time.hour, parsed_time.minute
         now = datetime.datetime.now(datetime.timezone.utc)
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if target <= now:
