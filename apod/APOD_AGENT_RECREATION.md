@@ -34,7 +34,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
    - Ping configured roles only for scheduled posts, never for manual command usage.
 
 4. **Commands**
-   - `[p]apod [DD/MM/YYYY]` (day/month/year, e.g. `31/12/2023`): manual APOD fetch; convert valid input to `YYYY-MM-DD` before API request.
+   - `[p]apod [DD/MM/YYYY]` (day/month/year, e.g. `31/12/2022`): manual APOD fetch; convert valid input to `YYYY-MM-DD` before API request.
    - `[p]apodset` group (admin/manage_guild):
      - `channel <#channel>`
      - `time <HH:MM>`
