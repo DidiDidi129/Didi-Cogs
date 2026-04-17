@@ -3,9 +3,9 @@
 Use this guide to recreate the `apod` cog with the same feature set while avoiding current reliability gaps.
 
 ## Source of truth
-- `/home/runner/work/Didi-Cogs/Didi-Cogs/apod/__init__.py`
-- `/home/runner/work/Didi-Cogs/Didi-Cogs/apod/apod.py`
-- `/home/runner/work/Didi-Cogs/Didi-Cogs/apod/info.json`
+- `apod/__init__.py`
+- `apod/apod.py`
+- `apod/info.json`
 
 ## Goal
 Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually by command, and supports scheduled daily posting per guild.
