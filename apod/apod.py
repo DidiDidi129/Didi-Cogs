@@ -204,10 +204,18 @@ class APOD(commands.Cog):
         parsed_date = None
         if date is not None:
             try:
-                parsed_date = datetime.datetime.strptime(date, "%d/%m/%Y").strftime("%Y-%m-%d")
+                parsed_dt = datetime.datetime.strptime(date, "%d/%m/%Y").date()
             except ValueError:
                 await ctx.send("❌ Invalid date format. Use DD/MM/YYYY.")
                 return
+            apod_start = datetime.date(1995, 6, 16)
+            today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+            if parsed_dt < apod_start or parsed_dt > today_utc:
+                await ctx.send(
+                    f"❌ Date must be between {apod_start.strftime('%d/%m/%Y')} and {today_utc.strftime('%d/%m/%Y')}."
+                )
+                return
+            parsed_date = parsed_dt.strftime("%Y-%m-%d")
 
         include_info = await self.config.guild(ctx.guild).include_info()
         await self.send_apod(ctx.channel, date=parsed_date, include_info=include_info, ping_roles=False)
