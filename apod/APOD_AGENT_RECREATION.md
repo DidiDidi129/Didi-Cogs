@@ -41,7 +41,6 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
      - `includeinfo <true|false>`
      - `apikey <key>`
      - `pingroles <@role...>`
-   - Base `apodset` command prints current settings.
 
 5. **Scheduler**
    - Per-guild daily loop at configured UTC time.
