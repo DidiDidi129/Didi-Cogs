@@ -1,0 +1,15 @@
+{
+    "author": ["Didi"],
+    "install_msg": "Thanks for installing the APOD cog! Use `[p]apodset` to configure the channel and posting time.",
+    "name": "APOD",
+    "short": "NASA Astronomy Picture of the Day",
+    "description": "Fetches and posts NASA's Astronomy Picture of the Day manually or on a daily schedule per server.",
+    "tags": ["nasa", "apod", "astronomy", "space", "image"],
+    "requirements": ["aiohttp"],
+    "end_user_data_statement": "This cog stores guild-level APOD settings including channel IDs, post times, include-info toggle, API key, and role IDs for scheduled pings.",
+    "hidden": false,
+    "min_bot_version": "3.5.0",
+    "max_bot_version": "3.5.99",
+    "type": "COG",
+    "permissions": []
+}
