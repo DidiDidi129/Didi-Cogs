@@ -15,7 +15,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
    - `setup(bot)` loads `APOD` cog.
    - Register per-guild config keys:
      - `channel_id` (int or null)
-     - `post_time` (HH:MM UTC)
+     - `post_time` (string `HH:MM` in UTC)
      - `include_info` (bool)
      - `api_key` (str or null)
      - `ping_roles` (list[int])
@@ -23,7 +23,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
 2. **NASA API fetch**
    - Endpoint: `https://api.nasa.gov/planetary/apod`
    - Use guild API key when present, otherwise `DEMO_KEY`.
-   - Optional date parameter in `YYYY-MM-DD`.
+   - Optional API date parameter in `YYYY-MM-DD`.
    - Handle network and API errors safely; do not crash command/task loop.
 
 3. **Message output (`send_apod`)**
@@ -34,7 +34,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
    - Ping configured roles only for scheduled posts, never for manual command usage.
 
 4. **Commands**
-   - `[p]apod [DD/MM/YYYY]`: manual APOD fetch.
+   - `[p]apod [DD/MM/YYYY]`: manual APOD fetch; convert valid input to `YYYY-MM-DD` before API request.
    - `[p]apodset` group (admin/manage_guild):
      - `channel <#channel>`
      - `time <HH:MM>`
