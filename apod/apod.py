@@ -9,6 +9,7 @@ from redbot.core import Config, checks, commands
 from redbot.core.utils.chat_formatting import humanize_list
 
 log = logging.getLogger("red.didi.apod")
+EMBED_FIELD_MAX_LENGTH = 1024
 
 
 class APOD(commands.Cog):
@@ -32,7 +33,7 @@ class APOD(commands.Cog):
             task.cancel()
         self.guild_tasks.clear()
         if not self.session.closed:
-            asyncio.create_task(self.session.close())
+            asyncio.ensure_future(self.session.close())
 
     async def fetch_apod(
         self, guild: Optional[discord.Guild], date: Optional[str] = None
@@ -94,8 +95,8 @@ class APOD(commands.Cog):
         )
 
         explanation = data.get("explanation") or "No explanation provided."
-        if len(explanation) > 1024:
-            explanation = explanation[:1021] + "..."
+        if len(explanation) > EMBED_FIELD_MAX_LENGTH:
+            explanation = explanation[: EMBED_FIELD_MAX_LENGTH - 3] + "..."
         if include_info:
             embed.add_field(name="Explanation", value=explanation, inline=False)
 
@@ -151,7 +152,7 @@ class APOD(commands.Cog):
                 try:
                     sleep_seconds = await self._next_sleep_seconds(post_time)
                 except Exception:
-                    log.warning("Invalid APOD post_time for guild %s: %r", guild_id, post_time)
+                    log.exception("Invalid APOD post_time for guild %s: %r", guild_id, post_time)
                     sleep_seconds = 60.0
 
                 await asyncio.sleep(sleep_seconds)
