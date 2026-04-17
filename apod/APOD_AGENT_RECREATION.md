@@ -75,8 +75,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
 - No personal user profile data is required.
 - Keep `info.json` metadata aligned with functionality and requirements.
 
-## Validation checklist for recreated code
-- Python files compile (`python -m compileall apod`).
+## Validation checklist for code
 - Manual command works in guild and fails safely in DM.
 - Invalid date format returns clear message.
 - Scheduled posting works with and without ping roles.
