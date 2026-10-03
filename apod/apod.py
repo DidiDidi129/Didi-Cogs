@@ -55,7 +55,9 @@ class APOD(commands.Cog):
 
         try:
             session = await self._get_session()
-            async with session.get("https://api.nasa.gov/planetary/apod", params=params) as resp:
+            async with session.get(
+                "https://science.nasa.gov/wp-json/wp/v2/apod-basic", params=params
+            ) as resp:
                 if resp.status != 200:
                     return None, f"NASA API request failed (status {resp.status})."
                 payload = await resp.json(content_type=None)
