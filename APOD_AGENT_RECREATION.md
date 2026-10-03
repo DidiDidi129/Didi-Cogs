@@ -21,7 +21,7 @@ Create a Red Discord Bot cog that fetches NASA APOD content, posts it manually b
      - `ping_roles` (list[int])
 
 2. **NASA API fetch**
-   - Endpoint: `https://api.nasa.gov/planetary/apod`
+   - Endpoint: `https://science.nasa.gov/wp-json/wp/v2/apod-basic/`
    - Use guild API key when present, otherwise `DEMO_KEY`.
    - Optional API date parameter in `YYYY-MM-DD`.
    - Handle network and API errors safely; do not crash command/task loop.
