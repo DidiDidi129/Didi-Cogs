@@ -56,7 +56,7 @@ class APOD(commands.Cog):
         try:
             session = await self._get_session()
             async with session.get(
-                "https://science.nasa.gov/wp-json/wp/v2/apod-basic", params=params
+                "https://api.nasa.gov/planetary/apod", params=params
             ) as resp:
                 if resp.status != 200:
                     return None, f"NASA API request failed (status {resp.status})."
@@ -66,9 +66,65 @@ class APOD(commands.Cog):
         except Exception:
             return None, "Received an invalid response from NASA APOD."
 
-        if not isinstance(payload, dict):
+        normalized = self._normalize_apod_payload(payload)
+        if normalized is None:
             return None, "Received an invalid APOD payload."
-        return payload, None
+        return normalized, None
+
+    @staticmethod
+    def _normalize_apod_payload(payload: object) -> Optional[dict]:
+        if isinstance(payload, list):
+            if not payload or not isinstance(payload[0], dict):
+                return None
+            payload = payload[0]
+        if not isinstance(payload, dict):
+            return None
+
+        def _value(value: object) -> object:
+            if isinstance(value, dict):
+                rendered = value.get("rendered")
+                if rendered is not None:
+                    return rendered
+            return value
+
+        date_value = _value(payload.get("date"))
+        title_value = _value(payload.get("title"))
+        explanation_value = _value(payload.get("explanation"))
+        media_type_value = _value(payload.get("media_type"))
+        hdurl_value = _value(payload.get("hdurl"))
+        url_value = _value(payload.get("url"))
+
+        if not isinstance(date_value, str):
+            date_value = None
+        if not isinstance(title_value, str):
+            title_value = None
+        if not isinstance(explanation_value, str):
+            explanation_value = None
+        if not isinstance(media_type_value, str):
+            media_type_value = None
+        if not isinstance(hdurl_value, str):
+            hdurl_value = None
+        if not isinstance(url_value, str):
+            url_value = None
+
+        if (
+            date_value is None
+            and title_value is None
+            and explanation_value is None
+            and media_type_value is None
+            and hdurl_value is None
+            and url_value is None
+        ):
+            return None
+
+        return {
+            "date": date_value,
+            "title": title_value,
+            "explanation": explanation_value,
+            "media_type": media_type_value,
+            "hdurl": hdurl_value,
+            "url": url_value,
+        }
 
     async def send_apod(
         self,
