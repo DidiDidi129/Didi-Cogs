@@ -226,16 +226,29 @@ class APOD(commands.Cog):
             timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
 
+        apod_url = data.get("permalink") or f"https://apod.nasa.gov/apod/ap{safe_date.strftime('%y%m%d')}.html"
+        description_parts = []
+
         explanation = data.get("explanation") or "No explanation provided."
-        if len(explanation) > EMBED_FIELD_MAX_LENGTH:
-            explanation = explanation[: EMBED_FIELD_MAX_LENGTH - 3] + "..."
+        explanation = re.sub(r"^\s*Explanation:\s*", "", explanation, count=1, flags=re.IGNORECASE)
+        if not explanation:
+            explanation = "No explanation provided."
+        explanation_too_long = len(explanation) > EMBED_FIELD_MAX_LENGTH
+
         if include_info:
-            embed.add_field(name="Explanation", value=explanation, inline=False)
+            if explanation_too_long:
+                description_parts.append(
+                    f"explaination too long. Read it on the official APOD website: [APOD Page]({apod_url})"
+                )
+            else:
+                embed.add_field(name="Explanation", value=explanation, inline=False)
 
         media_type = data.get("media_type")
         if media_type == "video":
-            apod_url = data.get("permalink") or f"https://apod.nasa.gov/apod/ap{safe_date.strftime('%y%m%d')}.html"
-            embed.description = f"📺 This APOD is a video. [View it on the APOD page]({apod_url})."
+            description_parts.append(f"📺 This APOD is a video. [View it on the APOD page]({apod_url}).")
+
+        if description_parts:
+            embed.description = "\n\n".join(description_parts)
 
         embed.set_footer(text=f"Date: {safe_date.isoformat()}")
 
