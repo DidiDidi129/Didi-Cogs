@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import html
 import logging
 from typing import Dict, Optional, Tuple
 
@@ -56,7 +57,7 @@ class APOD(commands.Cog):
         try:
             session = await self._get_session()
             async with session.get(
-                "https://api.nasa.gov/planetary/apod", params=params
+                "https://science.nasa.gov/wp-json/wp/v2/apod-basic/", params=params
             ) as resp:
                 if resp.status != 200:
                     return None, f"NASA API request failed (status {resp.status})."
@@ -93,6 +94,7 @@ class APOD(commands.Cog):
         media_type_value = _value(payload.get("media_type"))
         hdurl_value = _value(payload.get("hdurl"))
         url_value = _value(payload.get("url"))
+        permalink_value = _value(payload.get("permalink"))
 
         if not isinstance(date_value, str):
             date_value = None
@@ -106,6 +108,8 @@ class APOD(commands.Cog):
             hdurl_value = None
         if not isinstance(url_value, str):
             url_value = None
+        if not isinstance(permalink_value, str):
+            permalink_value = None
 
         if (
             date_value is None
@@ -114,8 +118,20 @@ class APOD(commands.Cog):
             and media_type_value is None
             and hdurl_value is None
             and url_value is None
+            and permalink_value is None
         ):
             return None
+
+        if title_value is not None:
+            title_value = html.unescape(title_value)
+        if explanation_value is not None:
+            explanation_value = html.unescape(explanation_value)
+        if hdurl_value is not None:
+            hdurl_value = html.unescape(hdurl_value)
+        if url_value is not None:
+            url_value = html.unescape(url_value)
+        if permalink_value is not None:
+            permalink_value = html.unescape(permalink_value)
 
         return {
             "date": date_value,
@@ -124,6 +140,7 @@ class APOD(commands.Cog):
             "media_type": media_type_value,
             "hdurl": hdurl_value,
             "url": url_value,
+            "permalink": permalink_value,
         }
 
     async def send_apod(
@@ -166,7 +183,7 @@ class APOD(commands.Cog):
 
         media_type = data.get("media_type")
         if media_type == "video":
-            apod_url = f"https://apod.nasa.gov/apod/ap{safe_date.strftime('%y%m%d')}.html"
+            apod_url = data.get("permalink") or f"https://apod.nasa.gov/apod/ap{safe_date.strftime('%y%m%d')}.html"
             embed.description = f"📺 This APOD is a video. [View it on the APOD page]({apod_url})."
 
         embed.set_footer(text=f"Date: {safe_date.isoformat()}")
