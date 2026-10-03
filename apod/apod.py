@@ -2,6 +2,8 @@ import asyncio
 import datetime
 import html
 import logging
+import re
+from html.parser import HTMLParser
 from typing import Dict, Optional, Tuple
 
 import aiohttp
@@ -11,6 +13,48 @@ from redbot.core.utils.chat_formatting import humanize_list
 
 log = logging.getLogger("red.didi.apod")
 EMBED_FIELD_MAX_LENGTH = 1024
+
+
+class _ExplanationHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.current_link_href: Optional[str] = None
+        self.current_link_text_parts = []
+
+    def handle_starttag(self, tag: str, attrs):
+        if tag == "a":
+            self.current_link_href = dict(attrs).get("href")
+            self.current_link_text_parts = []
+        elif tag == "br":
+            self.parts.append("\n")
+        elif tag in {"p", "div", "li"} and self.parts and self.parts[-1] != "\n":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str):
+        if tag == "a":
+            text = "".join(self.current_link_text_parts).strip()
+            href = self.current_link_href
+            if text:
+                if href:
+                    self.parts.append(f"[{text}]({href})")
+                else:
+                    self.parts.append(text)
+            self.current_link_href = None
+            self.current_link_text_parts = []
+        elif tag in {"p", "div", "li"} and self.parts and self.parts[-1] != "\n":
+            self.parts.append("\n")
+
+    def handle_data(self, data: str):
+        if self.current_link_href is not None:
+            self.current_link_text_parts.append(data)
+        else:
+            self.parts.append(data)
+
+    def get_text(self) -> str:
+        raw_text = "".join(self.parts)
+        lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in raw_text.splitlines()]
+        return "\n".join(line for line in lines if line).strip()
 
 
 class APOD(commands.Cog):
@@ -73,6 +117,13 @@ class APOD(commands.Cog):
         return normalized, None
 
     @staticmethod
+    def _sanitize_explanation(explanation: str) -> str:
+        parser = _ExplanationHTMLParser()
+        parser.feed(explanation)
+        parser.close()
+        return parser.get_text()
+
+    @staticmethod
     def _normalize_apod_payload(payload: object) -> Optional[dict]:
         if isinstance(payload, list):
             if not payload or not isinstance(payload[0], dict):
@@ -125,7 +176,7 @@ class APOD(commands.Cog):
         if title_value is not None:
             title_value = html.unescape(title_value)
         if explanation_value is not None:
-            explanation_value = html.unescape(explanation_value)
+            explanation_value = APOD._sanitize_explanation(html.unescape(explanation_value))
         if hdurl_value is not None:
             hdurl_value = html.unescape(hdurl_value)
         if url_value is not None:
