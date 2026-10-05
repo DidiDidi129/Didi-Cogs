@@ -73,12 +73,20 @@ class APOD(commands.Cog):
         self.session: Optional[aiohttp.ClientSession] = None
         self.guild_tasks: Dict[int, asyncio.Task] = {}
 
+    async def cog_load(self):
+        await self._restart_all_guild_tasks()
+
     def cog_unload(self):
         for task in self.guild_tasks.values():
             task.cancel()
         self.guild_tasks.clear()
         if self.session is not None and not self.session.closed:
             asyncio.ensure_future(self.session.close())
+
+    async def _restart_all_guild_tasks(self):
+        await self.bot.wait_until_ready()
+        for guild in self.bot.guilds:
+            await self.restart_guild_task(guild)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -446,8 +454,7 @@ class APOD(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        for guild in self.bot.guilds:
-            await self.restart_guild_task(guild)
+        await self._restart_all_guild_tasks()
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
