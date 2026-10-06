@@ -34,12 +34,8 @@ class _ExplanationHTMLParser(HTMLParser):
     def handle_endtag(self, tag: str):
         if tag == "a":
             text = "".join(self.current_link_text_parts).strip()
-            href = self.current_link_href
             if text:
-                if href:
-                    self.parts.append(f"[{text}]({href})")
-                else:
-                    self.parts.append(text)
+                self.parts.append(text)
             self.current_link_href = None
             self.current_link_text_parts = []
         elif tag in {"p", "div", "li"} and self.parts and self.parts[-1] != "\n":
@@ -242,14 +238,11 @@ class APOD(commands.Cog):
         if not explanation:
             explanation = "No explanation provided."
         explanation_too_long = len(explanation) > EMBED_FIELD_MAX_LENGTH
+        if explanation_too_long:
+            explanation = explanation[: EMBED_FIELD_MAX_LENGTH - 3].rstrip() + "..."
 
         if include_info:
-            if explanation_too_long:
-                description_parts.append(
-                    f"explaination too long. Read it on the official APOD website: [APOD Page]({apod_url})"
-                )
-            else:
-                embed.add_field(name="Explanation", value=explanation, inline=False)
+            embed.add_field(name="Explanation", value=explanation, inline=False)
 
         media_type = data.get("media_type")
         if media_type == "video":
